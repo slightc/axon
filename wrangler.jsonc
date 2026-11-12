@@ -1,0 +1,27 @@
+{
+  "name": "axon",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+
+  // 静态资源：public/index.html 即设备页面。
+  // 未命中静态文件的请求（/connect、/exec、/status）才会进入 Worker。
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+
+  // 一台设备一个 Durable Object 实例，持有其 WebSocket 长连接
+  "durable_objects": {
+    "bindings": [
+      { "name": "DEVICE", "class_name": "DeviceSession" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["DeviceSession"] }
+  ],
+
+  // demo 用明文 token；生产请改用：wrangler secret put AGENT_TOKEN
+  "vars": {
+    "AGENT_TOKEN": "change-me-demo-token"
+  }
+}

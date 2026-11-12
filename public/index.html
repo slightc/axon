@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Axon · 设备页面</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d;
+    --text: #e6edf3; --muted: #8b949e;
+    --green: #3fb950; --red: #f85149; --blue: #58a6ff; --yellow: #d29922;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: var(--mono); font-size: 13px; line-height: 1.5;
+    display: flex; flex-direction: column; height: 100vh;
+  }
+  header {
+    padding: 10px 16px; background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  }
+  header .title { font-weight: 600; font-size: 14px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .dot.off { background: var(--red); }
+  code.kv { color: var(--blue); }
+  main { flex: 1; overflow-y: auto; padding: 12px 16px; }
+  .hint {
+    color: var(--muted); border: 1px dashed var(--border);
+    border-radius: 6px; padding: 10px 12px; margin-bottom: 14px; white-space: pre-wrap;
+  }
+  .hint b { color: var(--text); }
+  .entry {
+    border: 1px solid var(--border); border-radius: 6px;
+    margin-bottom: 10px; overflow: hidden;
+  }
+  .entry .bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 10px; background: var(--panel); font-size: 12px;
+  }
+  .entry .bar .tag { font-weight: 600; }
+  .entry .bar .tag.ok { color: var(--green); }
+  .entry .bar .tag.err { color: var(--red); }
+  .entry .bar .time { color: var(--muted); margin-left: auto; }
+  pre { margin: 0; padding: 10px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+  pre.code { background: #010409; border-top: 1px solid var(--border); color: #c9d1d9; }
+  pre.logs { color: var(--yellow); border-top: 1px solid var(--border); }
+  pre.result { color: var(--green); border-top: 1px solid var(--border); }
+  pre.error { color: var(--red); border-top: 1px solid var(--border); }
+  .empty { color: var(--muted); text-align: center; padding: 40px; }
+</style>
+</head>
+<body>
+  <header>
+    <span class="title">🧠 Axon · 设备页面</span>
+    <span class="pill"><span id="dot" class="dot off"></span><span id="state">连接中…</span></span>
+    <span class="pill">设备ID <code class="kv" id="devId">—</code></span>
+    <span class="pill" id="countPill">已执行 <code class="kv" id="count">0</code></span>
+  </header>
+  <main>
+    <div class="hint" id="hint">这个页面就是一台「设备」。Agent 通过 HTTP 下发代码，这里会执行并把结果回传。
+Agent 侧示例（在终端跑）：
+  <b>curl -X POST "<span id="execUrl">…</span>" \
+    -H "Authorization: Bearer &lt;AGENT_TOKEN&gt;" \
+    --data 'document.body.style.background="#1a2a1a"; return document.title;'</b></div>
+    <div id="log"><div class="empty">等待 agent 下发代码…</div></div>
+  </main>
+
+<script>
+(function () {
+  const params = new URLSearchParams(location.search);
+  const deviceId = params.get("id") || "demo";
+  const wsProto = location.protocol === "https:" ? "wss" : "ws";
+  const wsUrl = `${wsProto}://${location.host}/connect?id=${encodeURIComponent(deviceId)}`;
+  const execUrl = `${location.origin}/exec?id=${encodeURIComponent(deviceId)}`;
+
+  document.getElementById("devId").textContent = deviceId;
+  document.getElementById("execUrl").textContent = execUrl;
+
+  const dot = document.getElementById("dot");
+  const stateEl = document.getElementById("state");
+  const logEl = document.getElementById("log");
+  const countEl = document.getElementById("count");
+  let count = 0;
+  let ws = null;
+  let pingTimer = null;
+
+  function setState(on, text) {
+    dot.className = "dot " + (on ? "on" : "off");
+    stateEl.textContent = text;
+  }
+
+  // 安全序列化返回值：处理 undefined / 循环引用 / DOM 节点 / 函数
+  function serialize(v) {
+    if (v === undefined) return "undefined";
+    if (v === null) return "null";
+    if (typeof v === "function") return `[Function ${v.name || "anonymous"}]`;
+    if (v instanceof Node) return `[${v.nodeName} ${v.id ? "#" + v.id : ""}]`.trim();
+    try {
+      const seen = new WeakSet();
+      return JSON.stringify(v, (k, val) => {
+        if (typeof val === "object" && val !== null) {
+          if (seen.has(val)) return "[Circular]";
+          seen.add(val);
+          if (val instanceof Node) return `[${val.nodeName}]`;
+        }
+        if (typeof val === "function") return `[Function]`;
+        return val;
+      }, 2);
+    } catch (e) {
+      return String(v);
+    }
+  }
+
+  // 在页面上下文执行 agent 下发的代码；捕获 console 输出与返回值
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+  async function runCode(code) {
+    const logs = [];
+    const orig = { log: console.log, warn: console.warn, error: console.error };
+    const cap = (fn, level) => (...args) => {
+      logs.push(`[${level}] ` + args.map((a) =>
+        typeof a === "object" ? serialize(a) : String(a)).join(" "));
+      fn.apply(console, args);
+    };
+    console.log = cap(orig.log, "log");
+    console.warn = cap(orig.warn, "warn");
+    console.error = cap(orig.error, "error");
+    try {
+      const fn = new AsyncFunction(code);            // 支持顶层 await 与 return
+      const ret = await fn();
+      return { ok: true, result: serialize(ret), logs };
+    } catch (e) {
+      return { ok: false, error: String(e && e.stack || e), logs };
+    } finally {
+      Object.assign(console, orig);
+    }
+  }
+
+  function render(entry) {
+    if (count === 0) logEl.innerHTML = "";
+    count++;
+    countEl.textContent = count;
+
+    const div = document.createElement("div");
+    div.className = "entry";
+    const tagClass = entry.ok ? "ok" : "err";
+    const tagText = entry.ok ? "OK" : "ERROR";
+    const t = new Date().toLocaleTimeString("zh-CN", { hour12: false }) +
+              "." + String(Date.now() % 1000).padStart(3, "0");
+
+    let html = `<div class="bar"><span class="tag ${tagClass}">${tagText}</span>` +
+               `<span class="time">${t}</span></div>`;
+    html += `<pre class="code">▸ ${escapeHtml(entry.code)}</pre>`;
+    if (entry.logs && entry.logs.length) {
+      html += `<pre class="logs">${escapeHtml(entry.logs.join("\n"))}</pre>`;
+    }
+    if (entry.ok) {
+      html += `<pre class="result">⟵ ${escapeHtml(entry.result)}</pre>`;
+    } else {
+      html += `<pre class="error">✖ ${escapeHtml(entry.error)}</pre>`;
+    }
+    div.innerHTML = html;
+    logEl.prepend(div);
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  }
+
+  function connect() {
+    setState(false, "连接中…");
+    ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      setState(true, "在线");
+      ws.send(JSON.stringify({ type: "hello", info: { ua: navigator.userAgent, url: location.href } }));
+      clearInterval(pingTimer);
+      pingTimer = setInterval(() => {
+        if (ws.readyState === 1) ws.send(JSON.stringify({ type: "ping" }));
+      }, 30000); // 保活，CF 的 WS 空闲约 100s 会断
+    };
+
+    ws.onmessage = async (evt) => {
+      let msg;
+      try { msg = JSON.parse(evt.data); } catch { return; }
+      if (msg.type !== "exec") return;
+      const res = await runCode(msg.code);
+      render({ code: msg.code, ...res });
+      ws.send(JSON.stringify({ type: "result", reqId: msg.reqId, ...res }));
+    };
+
+    ws.onclose = () => {
+      setState(false, "已断开 · 3s 后重连");
+      clearInterval(pingTimer);
+      setTimeout(connect, 3000);
+    };
+    ws.onerror = () => { try { ws.close(); } catch {} };
+  }
+
+  connect();
+})();
+</script>
+</body>
+</html>
