@@ -274,6 +274,14 @@ export default {
       return hubFetch(env, uid, request, url, "/hub/exec");
     }
 
+    // --- Agent MCP（Streamable HTTP，agent key 鉴权）---
+    if (path === "/mcp" && request.method === "POST") {
+      const uid = await userIdForAgentKey(env, request, ctx);
+      if (!uid) return new Response("unauthorized", { status: 401, headers: { "WWW-Authenticate": "Bearer" } });
+      return handleMcp(await request.json().catch(() => ({})), uid, env);
+    }
+    if (path === "/mcp") return new Response("MCP endpoint: POST JSON-RPC with header Authorization: Bearer <agent_key>", { status: 405 });
+
     // --- Legacy：/connect?id= · /exec?id= · /status?id= ---
     if (path === "/connect") {
       const id = getDeviceId(url);
@@ -390,6 +398,47 @@ export default {
 
 function json401() { return Response.json({ error: "unauthorized" }, { status: 401 }); }
 function safeJSON(s) { try { return s ? JSON.parse(s) : null; } catch { return null; } }
+
+// 最小 MCP（Streamable HTTP）：list_devices + exec
+async function handleMcp(rpc, uid, env) {
+  const id = rpc.id ?? null;
+  const reply = (result) => Response.json({ jsonrpc: "2.0", id, result });
+  const fail = (code, message) => Response.json({ jsonrpc: "2.0", id, error: { code, message } });
+  const m = rpc.method;
+  if (m === "initialize") {
+    return reply({ protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "axon", version: "0.1.0" } });
+  }
+  if (m === "notifications/initialized" || m === "notifications/cancelled") return new Response(null, { status: 202 });
+  if (m === "ping") return reply({});
+  if (m === "tools/list") {
+    return reply({ tools: [
+      { name: "list_devices", description: "列出当前账号下所有在线设备（name / type / 平台 / id）。", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
+      { name: "exec", description: "在指定设备上执行命令并返回输出。daemon 设备执行 shell 命令，浏览器设备执行 JS。device 用设备的 name 或 id 指定。", inputSchema: { type: "object", properties: { device: { type: "string", description: "设备 name 或 id" }, command: { type: "string", description: "要执行的命令 / 代码" } }, required: ["device", "command"], additionalProperties: false } },
+    ] });
+  }
+  if (m === "tools/call") {
+    const name = rpc.params?.name;
+    const args = rpc.params?.arguments || {};
+    const hub = hubFor(env, uid);
+    try {
+      if (name === "list_devices") {
+        const o = await hub.fetch(new Request(`https://x/hub/devices?uid=${uid}`)).then((r) => r.json());
+        const lines = (o.devices || []).map((d) => `${d.name} (${d.type})  id=${d.deviceId}${d.meta?.hostname ? "  host=" + d.meta.hostname : ""}${d.meta?.platform ? "  " + d.meta.platform : ""}`);
+        return reply({ content: [{ type: "text", text: lines.length ? lines.join("\n") : "(没有在线设备)" }] });
+      }
+      if (name === "exec") {
+        const r = await hub.fetch(new Request(`https://x/hub/exec?uid=${uid}&device=${encodeURIComponent(args.device || "")}`, { method: "POST", body: args.command || "" }));
+        const data = await r.json();
+        const text = data.ok ? (data.result || "(无输出)") : `错误: ${data.error || "exec failed"}`;
+        return reply({ content: [{ type: "text", text }], isError: !data.ok });
+      }
+      return fail(-32602, "unknown tool: " + name);
+    } catch (e) {
+      return fail(-32603, "internal error: " + e.message);
+    }
+  }
+  return fail(-32601, "method not found: " + m);
+}
 
 // 把请求转发到某用户的 UserHub（改写 path + 注入 uid）
 function hubFetch(env, uid, request, url, hubPath) {

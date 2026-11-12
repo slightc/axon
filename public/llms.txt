@@ -1,0 +1,42 @@
+# Axon
+
+Axon 让 AI agent 连接并操作无公网 IP 的远程设备（电脑 / 浏览器页面 / 嵌入式硬件），基于 Cloudflare Workers + Durable Objects 的反向隧道。设备主动连出，agent 从另一侧下发命令。
+
+Base URL: https://axon.hansc.workers.dev
+
+## 作为 agent 使用
+
+先在 /panel（GitHub 登录）生成 **agent key**。两种接入方式：
+
+### MCP（推荐 Claude 这类 agent）
+
+- Endpoint: `POST https://axon.hansc.workers.dev/mcp`
+- Header: `Authorization: Bearer <agent_key>`
+- Streamable HTTP / JSON-RPC。工具：
+  - `list_devices()` — 列出你账号下所有在线设备（name / type / 平台 / id）
+  - `exec(device, command)` — 在设备上执行命令。`device` 用设备的 name 或 id。daemon 设备执行 shell，浏览器设备执行 JS。
+
+### HTTP API
+
+- `GET /agent/devices` — 列出在线设备。Header: `Authorization: Bearer <agent_key>`
+- `POST /agent/exec?device=<name|id>` — body 是命令；返回 `{ok,result,exitCode,logs}`
+- `POST /agent/exec?device=<name|id>&stream=1` — 流式 NDJSON：每行 `{"t":"out"|"err","d":"..."}`，结束 `{"t":"end","ok":...,"exitCode":...}`
+
+## 作为设备连接
+
+先在 /panel 生成 **client key**。
+
+- **daemon（电脑 / 硬件）**: `AXON_CLIENT_KEY=<key> AXON_NAME=<名字> npx @slightc/axon`
+  收到的命令在本机 shell 执行。name 重复时服务端自动改名（nas → nas-2）并告知。
+- **浏览器**：油猴脚本 `userscript/axon.user.js` 或设备页面，同样 client key + name。
+
+不给 client key → legacy 模式：直接用高熵 device id 访问（agent 侧配 `AGENT_TOKEN`）。
+
+## 概念
+
+- **client key**：设备连接用，归属你的账号
+- **agent key**：agent 操作用
+- **device**：name（可改，重名自动去重）+ 高熵 id；按 name 或 id 指定
+- 登录 /panel 管理设备（改 name/type）和 key（增删查）
+
+Repo: https://github.com/slightc/axon
