@@ -29,9 +29,10 @@
     { "binding": "DB", "database_name": "axon-db", "database_id": "f11fb590-4257-42c5-b3df-63a8e34cd429" }
   ],
 
-  // demo 用明文 token；生产请改用：wrangler secret put AGENT_TOKEN
+  // AGENT_TOKEN 留空 = legacy /exec?id= 不鉴权（纯 device-id capability link，谁有 id 谁能访问）。
+  // 要恢复鉴权就填一个强值，或用 secret（wrangler secret put AGENT_TOKEN）覆盖。
   "vars": {
-    "AGENT_TOKEN": "change-me-demo-token",
+    "AGENT_TOKEN": "",
     "PUBLIC_ORIGIN": "https://axon.hansc.workers.dev",
     "GITHUB_CLIENT_ID": "Ov23liNcVOW4Nzl7dCEN"
   }
