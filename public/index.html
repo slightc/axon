@@ -148,7 +148,10 @@
 Agent 侧示例（在终端跑）：
   <b>curl -X POST "<span id="execUrl">…</span>" \
     --data 'document.body.style.background="#1a2a1a"; return document.title;'</b>
-（legacy 默认免鉴权；若本部署设置了 AGENT_TOKEN，再加 <b>-H "Authorization: Bearer &lt;AGENT_TOKEN&gt;"</b>）</div>
+（legacy 默认免鉴权；若本部署设置了 AGENT_TOKEN，再加 <b>-H "Authorization: Bearer &lt;AGENT_TOKEN&gt;"</b>）
+
+或在接入了 axon 的 agent（Claude 等）里直接用自然语言说：
+  <b>阅读 <span id="llmsUrl">…</span>，将 <span id="chatDevId">…</span> 的背景颜色改成蓝色</b></div>
     <div id="log"><div class="empty">等待 agent 下发代码…</div></div>
   </main>
 
@@ -307,6 +310,8 @@ Agent 侧示例（在终端跑）：
     setTimeout(() => (devIdEl.textContent = old), 1200);
   };
   document.getElementById("execUrl").textContent = execUrl;
+  document.getElementById("llmsUrl").textContent = `${location.origin}/llms.txt`;
+  document.getElementById("chatDevId").textContent = deviceId;
 
   const dot = document.getElementById("dot");
   const stateEl = document.getElementById("state");
