@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Axon 控制台</title>
+<style>
+  :root{--bg:#0d1117;--panel:#161b22;--border:#30363d;--text:#e6edf3;--muted:#8b949e;--green:#3fb950;--red:#f85149;--blue:#58a6ff;--yellow:#d29922;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,sans-serif;font-size:14px;line-height:1.5}
+  a{color:var(--blue);text-decoration:none}
+  header{display:flex;align-items:center;gap:12px;padding:14px 20px;background:var(--panel);border-bottom:1px solid var(--border)}
+  header .brand{font-weight:700;font-size:16px}
+  header .spacer{flex:1}
+  header .user{display:flex;align-items:center;gap:8px;color:var(--muted)}
+  header img{width:26px;height:26px;border-radius:50%}
+  main{max-width:860px;margin:0 auto;padding:20px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:18px}
+  .card h2{margin:0 0 12px;font-size:15px}
+  .row{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--border)}
+  .row:first-of-type{border-top:none}
+  .dot{width:9px;height:9px;border-radius:50%;flex:none}
+  .dot.on{background:var(--green);box-shadow:0 0 6px var(--green)}
+  .dot.off{background:var(--muted)}
+  .grow{flex:1;min-width:0}
+  .name{font-weight:600}
+  .sub{color:var(--muted);font-size:12px;font-family:var(--mono);word-break:break-all}
+  .tag{font-size:11px;color:var(--muted);border:1px solid var(--border);border-radius:4px;padding:1px 6px}
+  button{padding:7px 12px;background:#21262d;color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:13px}
+  button:hover{border-color:var(--blue)}
+  button.primary{background:var(--green);color:#fff;border:none;font-weight:600}
+  button.danger{background:transparent;color:var(--red);border-color:#6e2630}
+  input{background:#0d1117;color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 9px;font-size:13px;font-family:var(--mono)}
+  .keyval{font-family:var(--mono);font-size:12px;color:var(--yellow);word-break:break-all;background:#0d1117;border:1px solid var(--border);border-radius:5px;padding:6px 8px;flex:1}
+  .login{display:flex;flex-direction:column;align-items:center;gap:18px;padding:60px 20px;text-align:center}
+  .login .gh{display:inline-flex;align-items:center;gap:10px;background:#21262d;border:1px solid var(--border);color:var(--text);padding:12px 22px;border-radius:8px;font-size:15px;font-weight:600}
+  .muted{color:var(--muted)}
+  .empty{color:var(--muted);padding:14px 0;text-align:center}
+</style>
+</head>
+<body>
+<div id="app"><div class="login"><div class="muted">加载中…</div></div></div>
+<script>
+const $ = (h) => { const d=document.createElement('div'); d.innerHTML=h.trim(); return d.firstChild; };
+const esc = (s) => String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const app = document.getElementById('app');
+async function api(path, opts={}) { const r = await fetch(path, {credentials:'same-origin', headers:{'Content-Type':'application/json'}, ...opts}); let d=null; try{d=await r.json()}catch{} return {status:r.status, data:d}; }
+const ago = (ms) => { if(!ms) return '—'; const s=(Date.now()-ms)/1000; if(s<60) return Math.round(s)+'秒前'; if(s<3600) return Math.round(s/60)+'分钟前'; if(s<86400) return Math.round(s/3600)+'小时前'; return Math.round(s/86400)+'天前'; };
+
+async function init(){
+  const me = await api('/api/me');
+  if (me.status!==200 || !me.data || !me.data.user) return renderLogin();
+  renderDashboard(me.data.user);
+}
+
+function renderLogin(){
+  app.innerHTML='';
+  app.append($(`
+    <div class="login">
+      <div class="brand" style="font-size:22px;font-weight:700">🧠 Axon 控制台</div>
+      <div class="muted">登录后管理你的设备、client key 和 agent key</div>
+      <a class="gh" href="/auth/github">
+        <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        使用 GitHub 登录
+      </a>
+    </div>`));
+}
+
+async function renderDashboard(user){
+  app.innerHTML='';
+  app.append($(`
+    <header>
+      <span class="brand">🧠 Axon</span>
+      <span class="spacer"></span>
+      <span class="user">${user.avatar?`<img src="${esc(user.avatar)}">`:''}${esc(user.name||user.id)}</span>
+      <a href="/auth/logout"><button>登出</button></a>
+    </header>`));
+  const main = $(`<main></main>`); app.append(main);
+  const devCard = $(`<div class="card"><h2>设备 <span class="muted" id="devcount"></span></h2><div id="devlist" class="empty">加载中…</div></div>`);
+  const keyCard = $(`<div class="card"><h2>Keys</h2>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <button class="primary" id="newck">+ 新建 client key</button>
+      <button class="primary" id="newak">+ 新建 agent key</button>
+    </div>
+    <div id="keylist" class="empty">加载中…</div></div>`);
+  main.append(devCard, keyCard);
+  devCard.querySelector('#devlist').id='devlist';
+  document.getElementById('newck') && (document.getElementById('newck').onclick=()=>createKey('client'));
+  document.getElementById('newak') && (document.getElementById('newak').onclick=()=>createKey('agent'));
+  loadDevices(); loadKeys();
+}
+
+async function loadDevices(){
+  const el = document.getElementById('devlist'); if(!el) return;
+  const {data} = await api('/api/devices');
+  const devs = (data&&data.devices)||[];
+  document.getElementById('devcount').textContent = devs.length?`(${devs.filter(d=>d.online).length} 在线 / ${devs.length})`:'';
+  if(!devs.length){ el.className='empty'; el.textContent='还没有设备。用 client key 启动 daemon 或打开设备页面即可出现在这里。'; return; }
+  el.className=''; el.innerHTML='';
+  for(const d of devs){
+    const row = $(`<div class="row">
+      <span class="dot ${d.online?'on':'off'}"></span>
+      <div class="grow">
+        <div class="name">${esc(d.name||'(未命名)')} <span class="tag">${esc(d.type||'device')}</span></div>
+        <div class="sub">${esc(d.id)}${d.meta&&d.meta.hostname?' · '+esc(d.meta.hostname):''}${d.meta&&d.meta.platform?' · '+esc(d.meta.platform):''} · ${d.online?'在线':('最后在线 '+ago(d.lastSeen))}</div>
+      </div>
+      <button data-act="rename">改名</button>
+    </div>`);
+    row.querySelector('[data-act=rename]').onclick=async()=>{
+      const nn = prompt('新设备名', d.name||''); if(nn==null) return;
+      const nt = prompt('类型（可留空）', d.type||'');
+      await api('/api/devices/'+encodeURIComponent(d.id), {method:'PATCH', body:JSON.stringify({name:nn, type:nt})});
+      loadDevices();
+    };
+    el.append(row);
+  }
+}
+
+async function loadKeys(){
+  const el = document.getElementById('keylist'); if(!el) return;
+  const {data} = await api('/api/keys');
+  const ck=(data&&data.client_keys)||[], ak=(data&&data.agent_keys)||[];
+  if(!ck.length && !ak.length){ el.className='empty'; el.textContent='还没有 key，点上方按钮生成。'; return; }
+  el.className=''; el.innerHTML='';
+  const render = (list, kind) => list.forEach(k=>{
+    const row=$(`<div class="row">
+      <span class="tag">${kind}</span>
+      <div class="keyval">${esc(k.key)}</div>
+      <button data-act="copy">复制</button>
+      <button class="danger" data-act="del">删除</button>
+    </div>`);
+    row.querySelector('[data-act=copy]').onclick=()=>{navigator.clipboard?.writeText(k.key);};
+    row.querySelector('[data-act=del]').onclick=async()=>{ if(!confirm('删除这个 key？依赖它的设备/agent 将无法连接')) return; await api('/api/keys/'+encodeURIComponent(k.key),{method:'DELETE'}); loadKeys(); };
+    el.append(row);
+  });
+  render(ck,'client'); render(ak,'agent');
+}
+
+async function createKey(kind){
+  const {data} = await api('/api/keys', {method:'POST', body:JSON.stringify({kind})});
+  if(data&&data.key){ alert((kind==='agent'?'Agent':'Client')+' key（请立即保存）:\n\n'+data.key); loadKeys(); }
+}
+
+init();
+</script>
+</body>
+</html>

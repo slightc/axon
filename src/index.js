@@ -7,6 +7,8 @@
  *           /agent/devices · /agent/exec?device=<name|id>（agent key）→ UserHub
  */
 
+import { signJWT, verifyJWT, setCookie, getCookie, requireUser, githubAuthUrl, githubExchange, githubUser, upsertGithubUser } from "./auth.js";
+
 // ===== Legacy：一台设备一个 DeviceSession（旧随机 id + AGENT_TOKEN，保持兼容）=====
 export class DeviceSession {
   constructor(state, env) {
@@ -291,9 +293,103 @@ export default {
       return stubFor(env, id).fetch(request);
     }
 
+    // ===== Auth（GitHub OAuth）=====
+    if (path === "/auth/github") {
+      const state = randomId(16);
+      const headers = new Headers({ Location: githubAuthUrl(env, request, state) });
+      headers.append("Set-Cookie", setCookie("axon_oauth_state", state, 600));
+      return new Response(null, { status: 302, headers });
+    }
+    if (path === "/auth/github/callback") {
+      const code = url.searchParams.get("code");
+      const state = url.searchParams.get("state");
+      if (!code || !state || state !== getCookie(request, "axon_oauth_state")) return new Response("invalid oauth state", { status: 400 });
+      const tok = await githubExchange(env, request, code);
+      if (!tok) return new Response("oauth exchange failed", { status: 400 });
+      const gh = await githubUser(tok);
+      if (!gh) return new Response("github user fetch failed", { status: 400 });
+      const uid = await upsertGithubUser(env, gh, randomId);
+      const jwt = await signJWT({ uid, exp: Math.floor(Date.now() / 1000) + 30 * 24 * 3600 }, env.JWT_SECRET);
+      const headers = new Headers({ Location: "/panel" });
+      headers.append("Set-Cookie", setCookie("axon_session", jwt, 30 * 24 * 3600));
+      headers.append("Set-Cookie", setCookie("axon_oauth_state", "", 0));
+      return new Response(null, { status: 302, headers });
+    }
+    if (path === "/auth/logout") {
+      const headers = new Headers({ Location: "/" });
+      headers.append("Set-Cookie", setCookie("axon_session", "", 0));
+      return new Response(null, { status: 302, headers });
+    }
+
+    // ===== 面板 API（JWT session）=====
+    if (path === "/api/me") {
+      const uid = await requireUser(request, env);
+      if (!uid) return Response.json({ user: null }, { status: 401 });
+      const u = await env.DB.prepare("SELECT id,provider,name,email,avatar,created_at FROM users WHERE id=?").bind(uid).first();
+      return Response.json({ user: u });
+    }
+    if (path === "/api/devices" && request.method === "GET") {
+      const uid = await requireUser(request, env);
+      if (!uid) return json401();
+      const rows = await env.DB.prepare("SELECT id,name,type,meta,first_seen,last_seen FROM devices WHERE user_id=? ORDER BY last_seen DESC").bind(uid).all();
+      let onlineIds = new Set();
+      try {
+        const o = await hubFor(env, uid).fetch(new Request(`https://x/hub/devices?uid=${uid}`)).then((r) => r.json());
+        onlineIds = new Set((o.devices || []).map((d) => d.deviceId));
+      } catch {}
+      const devices = (rows.results || []).map((d) => ({ id: d.id, name: d.name, type: d.type, meta: safeJSON(d.meta), firstSeen: d.first_seen, lastSeen: d.last_seen, online: onlineIds.has(d.id) }));
+      return Response.json({ devices });
+    }
+    if (path.startsWith("/api/devices/") && request.method === "PATCH") {
+      const uid = await requireUser(request, env);
+      if (!uid) return json401();
+      const id = decodeURIComponent(path.slice("/api/devices/".length));
+      const body = await request.json().catch(() => ({}));
+      const sets = [], binds = [];
+      if (typeof body.name === "string") { sets.push("name=?"); binds.push(body.name.slice(0, 64)); }
+      if (typeof body.type === "string") { sets.push("type=?"); binds.push(body.type.slice(0, 32)); }
+      if (!sets.length) return Response.json({ error: "nothing to update" }, { status: 400 });
+      binds.push(id, uid);
+      const r = await env.DB.prepare(`UPDATE devices SET ${sets.join(",")} WHERE id=? AND user_id=?`).bind(...binds).run();
+      return Response.json({ ok: r.meta.changes > 0 });
+    }
+    if (path === "/api/keys" && request.method === "GET") {
+      const uid = await requireUser(request, env);
+      if (!uid) return json401();
+      const ck = await env.DB.prepare("SELECT key,label,created_at,last_used FROM client_keys WHERE user_id=? ORDER BY created_at DESC").bind(uid).all();
+      const ak = await env.DB.prepare("SELECT key,label,created_at,last_used FROM agent_keys WHERE user_id=? ORDER BY created_at DESC").bind(uid).all();
+      return Response.json({ client_keys: ck.results || [], agent_keys: ak.results || [] });
+    }
+    if (path === "/api/keys" && request.method === "POST") {
+      const uid = await requireUser(request, env);
+      if (!uid) return json401();
+      const body = await request.json().catch(() => ({}));
+      const kind = body.kind === "agent" ? "agent" : "client";
+      const table = kind === "agent" ? "agent_keys" : "client_keys";
+      const key = `${kind === "agent" ? "ak" : "ck"}_${randomId(32)}`;
+      await env.DB.prepare(`INSERT INTO ${table} (key,user_id,label,created_at) VALUES (?,?,?,?)`).bind(key, uid, (body.label || "").slice(0, 64) || null, Date.now()).run();
+      return Response.json({ key, kind });
+    }
+    if (path.startsWith("/api/keys/") && request.method === "DELETE") {
+      const uid = await requireUser(request, env);
+      if (!uid) return json401();
+      const key = decodeURIComponent(path.slice("/api/keys/".length));
+      await env.DB.prepare("DELETE FROM client_keys WHERE key=? AND user_id=?").bind(key, uid).run();
+      await env.DB.prepare("DELETE FROM agent_keys WHERE key=? AND user_id=?").bind(key, uid).run();
+      return Response.json({ ok: true });
+    }
+
+    // 面板页面
+    if (path === "/panel") {
+      return env.ASSETS.fetch(new Request(new URL("/panel.html", url), request));
+    }
+
     return env.ASSETS.fetch(request);
   },
 };
+
+function json401() { return Response.json({ error: "unauthorized" }, { status: 401 }); }
+function safeJSON(s) { try { return s ? JSON.parse(s) : null; } catch { return null; } }
 
 // 把请求转发到某用户的 UserHub（改写 path + 注入 uid）
 function hubFetch(env, uid, request, url, hubPath) {
