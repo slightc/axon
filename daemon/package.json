@@ -1,13 +1,14 @@
 {
-  "name": "agent-axon",
+  "name": "@slightc/axon",
   "version": "0.1.0",
   "description": "Axon daemon — turn a machine behind NAT into an axon device so an AI agent can run shell commands on it over Cloudflare Workers.",
   "type": "module",
   "bin": {
-    "agent-axon": "./axon-daemon.mjs",
+    "axon-cli": "./axon-daemon.mjs",
     "axon-daemon": "./axon-daemon.mjs"
   },
   "files": ["axon-daemon.mjs", "README.md"],
+  "publishConfig": { "access": "public" },
   "scripts": { "start": "node axon-daemon.mjs" },
   "engines": { "node": ">=18" },
   "keywords": ["axon", "ai-agent", "cloudflare", "reverse-tunnel", "remote-control", "daemon", "nat-traversal"],

@@ -1,14 +1,19 @@
-# agent-axon
+# @slightc/axon
 
 Axon daemon —— 让无公网 IP 的机器成为一台 [axon](https://github.com/slightc/axon) 设备：反连 Cloudflare Worker，把 AI agent 下发的命令在本机 shell 执行并回传（支持流式）。
 
 ## 用法
 
 ```bash
-AXON_HOST=axon.hansc.workers.dev npx agent-axon
-# 或全局安装
-npm i -g agent-axon && AXON_HOST=axon.hansc.workers.dev agent-axon
+# 全局安装后用 axon-cli 启动
+npm i -g @slightc/axon
+AXON_HOST=axon.hansc.workers.dev axon-cli
+
+# 或 npx（不安装）
+AXON_HOST=axon.hansc.workers.dev npx -p @slightc/axon axon-cli
 ```
+
+`bin` 提供两个等价入口：`axon-cli`、`axon-daemon`。
 
 启动后打印高熵设备 id（持久化到 `~/.axon/device-id`）。agent 用该 id `POST /exec` 下发命令，加 `?stream=1` 实时流式：
 
