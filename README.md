@@ -71,16 +71,17 @@ wrangler secret put AGENT_TOKEN
 
 ## 浏览器油猴脚本（控制任意页面）
 
-`userscript/axon.user.js` 是一个 Tampermonkey / Greasemonkey 用户脚本。装上后，它在你浏览的**任意网页**右下角浮一个小控件，点「开始连接」即把当前页面注册成一台 axon 设备，agent 便能下发代码操控这个真实页面；可随时断开、可收起。连接状态会跨页面保持 —— 导航到新页面时自动续连，因此适合「搜索 → 结果页 → 点进详情」这类多步任务。
+`public/axon.user.js` 是一个 Tampermonkey / Greasemonkey 用户脚本。装上后，它在你浏览的**任意网页**右下角浮一个小控件，点「开始连接」即把当前页面注册成一台 axon 设备，agent 便能下发代码操控这个真实页面；可随时断开、可收起。连接状态会跨页面保持 —— 导航到新页面时自动续连，因此适合「搜索 → 结果页 → 点进详情」这类多步任务。
 
 安装：
 
 1. 浏览器装 Tampermonkey（或兼容的用户脚本管理器）
-2. 新建脚本，粘贴 `userscript/axon.user.js` 的全部内容
-3. 把文件顶部的 `AXON_HOST` 改成你自己的 worker 域名（默认 `axon.hansc.workers.dev`）
-4. 保存，刷新任意页面，右下角出现「🧠 Axon」控件
+2. 访问 <https://axon.hansc.workers.dev/axon.user.js>（或设备首页右上角「📜 安装油猴脚本」按钮）→ Tampermonkey 自动弹出安装
+3. 保存，刷新任意页面，右下角出现「🧠 Axon」控件
 
-控件里的设备 id 同样是高熵不可猜、按站点持久化，点一下即可复制交给 agent。脚本用 `@grant none` 运行在页面上下文，因此下发的代码能直接操作该页面的真实 DOM —— 个别启用了严格 CSP（`connect-src` 或禁 `unsafe-eval`）的站点可能连不上或无法执行，属预期限制。
+**两种模式**：点控件上的 ⚙ 可填 **client key**（在 /panel 生成）和设备名 —— 填了就是**账号模式**（设备归属你的账号、面板可见、可被 name 指定、重名自动去重）；不填则 **legacy 模式**（用高熵 device id 直接访问）。
+
+脚本用 `@grant none` 运行在页面上下文，因此下发的代码能直接操作该页面的真实 DOM —— 个别启用了严格 CSP（`connect-src` 或禁 `unsafe-eval`）的站点可能连不上或无法执行，属预期限制。
 
 ## 真实电脑 daemon（shell / 命令）
 
