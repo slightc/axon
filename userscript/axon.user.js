@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Axon Device
 // @namespace    https://github.com/slightc/axon
-// @version      0.1.0
+// @version      0.2.0
 // @description  把当前页面变成一台 Axon 设备：点「开始连接」后 agent 可远程下发代码控制本页面；可随时断开。
 // @author       Hans
 // @match        *://*/*
@@ -78,6 +78,7 @@
   // ---------- 连接 ----------
   function connect() {
     manualClose = false;
+    try { localStorage.setItem("axon_autoconnect", "1"); } catch {}
     setState("connecting");
     ws = new WebSocket(wsUrl);
     ws.onopen = () => {
@@ -103,6 +104,7 @@
   }
   function disconnect() {
     manualClose = true;
+    try { localStorage.removeItem("axon_autoconnect"); } catch {}
     clearTimeout(reconnectTimer);
     clearInterval(pingTimer);
     try { ws && ws.close(1000, "manual"); } catch {}
@@ -163,4 +165,6 @@
   fab.onclick = () => { fab.style.display = "none"; panel.style.display = ""; };
 
   setState("offline");
+  // 跨页面保持：之前开启过连接，则页面（含导航后的新页面）加载时自动续连，支持多步任务
+  if (localStorage.getItem("axon_autoconnect") === "1") connect();
 })();

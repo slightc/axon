@@ -71,7 +71,7 @@ wrangler secret put AGENT_TOKEN
 
 ## 浏览器油猴脚本（控制任意页面）
 
-`userscript/axon.user.js` 是一个 Tampermonkey / Greasemonkey 用户脚本。装上后，它在你浏览的**任意网页**右下角浮一个小控件，点「开始连接」即把当前页面注册成一台 axon 设备，agent 便能下发代码操控这个真实页面；可随时断开、可收起。
+`userscript/axon.user.js` 是一个 Tampermonkey / Greasemonkey 用户脚本。装上后，它在你浏览的**任意网页**右下角浮一个小控件，点「开始连接」即把当前页面注册成一台 axon 设备，agent 便能下发代码操控这个真实页面；可随时断开、可收起。连接状态会跨页面保持 —— 导航到新页面时自动续连，因此适合「搜索 → 结果页 → 点进详情」这类多步任务。
 
 安装：
 
