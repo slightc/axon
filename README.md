@@ -65,6 +65,15 @@ wrangler secret put AGENT_TOKEN
 `/exec` 返回：`{ ok, result, logs }` 或 `{ ok:false, error }`。
 下发的代码支持顶层 `await` 和 `return`，运行在页面全局上下文，可直接操作 DOM / `window`。
 
+## 设备 id 与安全
+
+每台设备用一个高熵、不可暴力猜测的 id（`dev_` + 32 字符 base62 ≈ 190 bit）。设备页面首次打开时自动生成，存入 `localStorage` 作为持久身份，并写回 URL —— 这条带 id 的 URL 就是该设备的 **capability link**：谁拿到它，才能连接并控制这台设备。
+
+- 设备 id 由 `crypto.getRandomValues` 生成，无法枚举。
+- Worker 对所有接口强制校验 id 格式（`[A-Za-z0-9_-]{16,128}`），弱 id / 缺失一律 `400`。
+- `/exec` 另需 `AGENT_TOKEN`，构成「不可猜 id + token」双重门槛。
+- 点击页面顶部的设备 id 可复制连接 URL，交给 agent 使用。
+
 ## 已知边界（demo 范围）
 
 - DO 用普通 `accept()` 而非 Hibernation：pending 结果靠内存 Map 关联，设备在线期间 DO 保持活跃即可；生产大量设备应改 Hibernation + 存储层。

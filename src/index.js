@@ -106,7 +106,8 @@ export default {
 
     // 设备 WS 入口：/connect?id=<deviceId>
     if (path === "/connect") {
-      const id = url.searchParams.get("id") || "demo";
+      const id = getDeviceId(url);
+      if (!id) return new Response("invalid device id", { status: 400 });
       return stubFor(env, id).fetch(request);
     }
 
@@ -114,13 +115,15 @@ export default {
     if (path === "/exec" && request.method === "POST") {
       const unauth = checkAuth(request, env);
       if (unauth) return unauth;
-      const id = url.searchParams.get("id") || "demo";
+      const id = getDeviceId(url);
+      if (!id) return new Response("invalid device id", { status: 400 });
       return stubFor(env, id).fetch(request);
     }
 
     // 设备在线状态：GET /status?id=<deviceId>
     if (path === "/status") {
-      const id = url.searchParams.get("id") || "demo";
+      const id = getDeviceId(url);
+      if (!id) return Response.json({ online: false, error: "invalid device id" }, { status: 400 });
       return stubFor(env, id).fetch(request);
     }
 
@@ -128,6 +131,14 @@ export default {
     return env.ASSETS.fetch(request);
   },
 };
+
+// 设备 id 必须高熵、不可暴力猜测：16–128 位 [A-Za-z0-9_-]。
+// 设备端用 crypto.getRandomValues 生成 ~190 bit 的随机 id，攻击者无法枚举。
+// 不合规（缺失/过短/含非法字符）一律拒绝，防止弱 id 或端口扫描命中。
+function getDeviceId(url) {
+  const id = url.searchParams.get("id") || "";
+  return /^[A-Za-z0-9_-]{16,128}$/.test(id) ? id : null;
+}
 
 function stubFor(env, id) {
   return env.DEVICE.get(env.DEVICE.idFromName(id));
