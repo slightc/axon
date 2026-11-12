@@ -101,11 +101,22 @@ curl -X POST "https://axon.hansc.workers.dev/exec?id=<id>" \
 # => { "ok": true, "result": "<stdout>", "exitCode": 0, "logs": ["<stderr>"] }
 ```
 
-配置项：`AXON_HOST`、`AXON_DEVICE_ID`、`AXON_EXEC_TIMEOUT`（默认 12000ms，需 < worker 的 15s）、`AXON_INSECURE`（本地用 `ws://`）。
+配置项：`AXON_HOST`、`AXON_DEVICE_ID`、`AXON_EXEC_TIMEOUT`（非流式单命令上限，默认 12000ms，需 < worker 的 15s）、`AXON_STREAM_TIMEOUT`（流式上限，默认 600000ms）、`AXON_INSECURE`（本地用 `ws://`）。
+
+### 流式输出
+
+加 `?stream=1`，响应变成一条 NDJSON 流，设备产出的每块 stdout/stderr 实时到达 —— 适合 `tail -f`、串口 log、烧录进度、长命令：
+
+```bash
+curl -N -X POST "https://axon.hansc.workers.dev/exec?id=<id>&stream=1" \
+  -H "Authorization: Bearer <AGENT_TOKEN>" --data 'tail -f /path/to/serial.log'
+```
+
+每行一个 JSON：`{"t":"out"|"err","d":"<块>"}`，结束为 `{"t":"end","ok":...,"exitCode":...}`。agent 关闭连接（`curl` Ctrl-C）会通知设备终止该命令；流式上限 10min。不带 `stream=1` 则是一次性执行。
 
 > ⚠️ **安全**：daemon 会在本机 shell 直接执行收到的任意命令。只连你信任的 worker，务必给 `/exec` 配强 `AGENT_TOKEN`，别用高权限账号跑它。每条命令都会打印在 daemon 控制台，便于审计。
 >
-> 当前为一次性执行：单命令上限 12s、输出执行结束后一次性返回。长时命令、`tail -f`、串口 / openocd 的持续输出需要流式协议（下一步）。
+> 串口读取、烧录、openocd 这类**专用功能不在 daemon 里硬编码**，而是由 agent 侧的 skill 组合 shell 命令（配合 `?stream=1`）实现 —— daemon 保持通用，专用逻辑留在可迭代的 skill 层。
 
 ## 设备 id 与安全
 

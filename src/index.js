@@ -47,11 +47,25 @@ export class DeviceSession {
     server.addEventListener("message", (evt) => {
       let msg;
       try { msg = JSON.parse(evt.data); } catch { return; }
+      const p = this.pending.get(msg.reqId);
 
-      if (msg.type === "result") {
-        // 设备执行完回传，按 reqId 唤醒对应的 agent 请求
-        const p = this.pending.get(msg.reqId);
-        if (p) {
+      if (msg.type === "stream") {
+        // 流式输出的一块：实时写进对应 agent 请求的 HTTP 响应流
+        if (p && p.stream && !p.closed) {
+          try { p.controller.enqueue(p.enc.encode(JSON.stringify({ t: msg.stream, d: msg.data }) + "\n")); } catch {}
+        }
+      } else if (msg.type === "result") {
+        if (!p) return;
+        if (p.stream) {
+          // 流式：写入结束标志并关闭流
+          if (!p.closed) {
+            p.closed = true; clearTimeout(p.timer);
+            try { p.controller.enqueue(p.enc.encode(JSON.stringify({ t: "end", ok: msg.ok, exitCode: msg.exitCode ?? null, error: msg.error ?? null }) + "\n")); } catch {}
+            try { p.controller.close(); } catch {}
+          }
+          this.pending.delete(msg.reqId);
+        } else {
+          // 非流式：唤醒等待的单次请求
           clearTimeout(p.timer);
           this.pending.delete(msg.reqId);
           p.resolve(msg);
@@ -75,12 +89,52 @@ export class DeviceSession {
     if (!this.deviceSocket) {
       return Response.json({ ok: false, error: "device offline" }, { status: 503 });
     }
+    const url = new URL(request.url);
+    const streaming = url.searchParams.get("stream") === "1";
     const code = await request.text();
     if (!code.trim()) {
       return Response.json({ ok: false, error: "empty code" }, { status: 400 });
     }
-
     const reqId = crypto.randomUUID();
+
+    // 流式：返回一条 NDJSON 响应流，设备产出的每块实时写入；agent 断开则通知设备取消
+    if (streaming) {
+      const enc = new TextEncoder();
+      const self = this;
+      const readable = new ReadableStream({
+        start(controller) {
+          const entry = { stream: true, controller, enc, closed: false };
+          entry.timer = setTimeout(() => {
+            if (entry.closed) return;
+            entry.closed = true;
+            try { controller.enqueue(enc.encode(JSON.stringify({ t: "end", error: "timeout (10min)" }) + "\n")); } catch {}
+            try { controller.close(); } catch {}
+            self.pending.delete(reqId);
+            try { self.deviceSocket && self.deviceSocket.send(JSON.stringify({ type: "cancel", reqId })); } catch {}
+          }, 10 * 60 * 1000);
+          self.pending.set(reqId, entry);
+          try {
+            self.deviceSocket.send(JSON.stringify({ type: "exec", reqId, code, stream: true }));
+          } catch (e) {
+            entry.closed = true; clearTimeout(entry.timer);
+            try { controller.enqueue(enc.encode(JSON.stringify({ t: "end", error: "send failed: " + e.message }) + "\n")); } catch {}
+            try { controller.close(); } catch {}
+            self.pending.delete(reqId);
+          }
+        },
+        cancel() {
+          // agent 关闭了响应流（如 curl Ctrl-C）→ 通知设备停止命令
+          const entry = self.pending.get(reqId);
+          if (entry) { entry.closed = true; clearTimeout(entry.timer); self.pending.delete(reqId); }
+          try { self.deviceSocket && self.deviceSocket.send(JSON.stringify({ type: "cancel", reqId })); } catch {}
+        },
+      });
+      return new Response(readable, {
+        headers: { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-cache" },
+      });
+    }
+
+    // 非流式：等单个 result（15s 超时）
     const result = await new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.pending.delete(reqId);

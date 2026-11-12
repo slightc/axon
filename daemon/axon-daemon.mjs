@@ -22,6 +22,8 @@ import path from "path";
 const HOST = process.env.AXON_HOST || "axon.hansc.workers.dev";
 const PROTO = process.env.AXON_INSECURE ? "ws" : "wss";
 const EXEC_TIMEOUT = Number(process.env.AXON_EXEC_TIMEOUT || 12000);
+const STREAM_TIMEOUT = Number(process.env.AXON_STREAM_TIMEOUT || 600000); // 流式命令上限 10min
+const running = new Map(); // reqId -> 流式子进程（供 cancel 终止）
 
 // 高熵、不可暴力猜测的设备 id（dev_ + 32 字符 base62），持久化到 ~/.axon/device-id
 function loadOrCreateId() {
@@ -58,6 +60,19 @@ function runCommand(cmd) {
   });
 }
 
+// 流式执行：stdout/stderr 每来一块就推 {type:'stream'}，进程结束发 {type:'result'}
+function runCommandStream(reqId, cmd) {
+  log("▸ (stream)", cmd.length > 120 ? cmd.slice(0, 120) + "…" : cmd);
+  const child = spawn(cmd, { shell: true });
+  running.set(reqId, child);
+  const send = (o) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
+  child.stdout.on("data", (d) => send({ type: "stream", reqId, stream: "out", data: d.toString() }));
+  child.stderr.on("data", (d) => send({ type: "stream", reqId, stream: "err", data: d.toString() }));
+  const timer = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, STREAM_TIMEOUT);
+  child.on("close", (code) => { clearTimeout(timer); running.delete(reqId); send({ type: "result", reqId, ok: code === 0, exitCode: code }); });
+  child.on("error", (e) => { clearTimeout(timer); running.delete(reqId); send({ type: "result", reqId, ok: false, error: e.message }); });
+}
+
 let ws, pingTimer, reconnectTimer, manualExit = false;
 function connect() {
   log("connecting", wsUrl);
@@ -70,9 +85,17 @@ function connect() {
   });
   ws.on("message", async (data) => {
     let msg; try { msg = JSON.parse(data.toString()); } catch { return; }
-    if (msg.type !== "exec") return;
-    const res = await runCommand(msg.code);
-    if (ws.readyState === 1) ws.send(JSON.stringify({ type: "result", reqId: msg.reqId, ...res }));
+    if (msg.type === "exec") {
+      if (msg.stream) {
+        runCommandStream(msg.reqId, msg.code);
+      } else {
+        const res = await runCommand(msg.code);
+        if (ws.readyState === 1) ws.send(JSON.stringify({ type: "result", reqId: msg.reqId, ...res }));
+      }
+    } else if (msg.type === "cancel") {
+      const child = running.get(msg.reqId);
+      if (child) { try { child.kill("SIGKILL"); } catch {} running.delete(msg.reqId); log("✗ cancelled", msg.reqId); }
+    }
   });
   ws.on("close", () => {
     clearInterval(pingTimer);
