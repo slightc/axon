@@ -272,7 +272,10 @@ export default {
     if (path === "/agent/exec" && request.method === "POST") {
       const uid = await userIdForAgentKey(env, request, ctx);
       if (!uid) return new Response("unauthorized", { status: 401 });
-      return hubFetch(env, uid, request, url, "/hub/exec");
+      const device = url.searchParams.get("device") || "";
+      const streaming = url.searchParams.get("stream") === "1";
+      const command = await request.text();
+      return agentExec(env, uid, device, command, streaming);
     }
 
     // --- Agent MCP（Streamable HTTP，agent key 鉴权）---
@@ -450,7 +453,7 @@ async function handleMcp(rpc, uid, env) {
         return reply({ content: [{ type: "text", text: lines.length ? lines.join("\n") : "(没有在线设备)" }] });
       }
       if (name === "exec") {
-        const r = await hub.fetch(new Request(`https://x/hub/exec?uid=${uid}&device=${encodeURIComponent(args.device || "")}`, { method: "POST", body: args.command || "" }));
+        const r = await agentExec(env, uid, args.device || "", args.command || "", false);
         const data = await r.json();
         const text = data.ok ? (data.result || "(无输出)") : `错误: ${data.error || "exec failed"}`;
         return reply({ content: [{ type: "text", text }], isError: !data.ok });
@@ -462,6 +465,24 @@ async function handleMcp(rpc, uid, env) {
   }
   return fail(-32601, "method not found: " + m);
 }
+
+// agent / MCP 执行：先在账号设备(UserHub)里按 name/id 找；找不到且 device 像一个 legacy
+// device id（高熵、capability-link 访问），就直连它的 DeviceSession —— 这样无需 client key、
+// 仅凭 device id 即可被 agent 访问。内部直连，不再走 AGENT_TOKEN（调用者已过 agent key 鉴权）。
+async function agentExec(env, uid, device, command, streaming) {
+  const s = streaming ? "&stream=1" : "";
+  const hubRes = await hubFor(env, uid).fetch(
+    new Request(`https://x/hub/exec?uid=${uid}&device=${encodeURIComponent(device)}${s}`, { method: "POST", body: command })
+  );
+  if (hubRes.status !== 404) return hubRes;          // 账号里找到了（结果或流）
+  if (isLegacyId(device)) {
+    return stubFor(env, device).fetch(
+      new Request(`https://x/exec?id=${encodeURIComponent(device)}${s}`, { method: "POST", body: command })
+    );
+  }
+  return hubRes;                                      // 都没有 → 404
+}
+function isLegacyId(s) { return /^[A-Za-z0-9_-]{16,128}$/.test(s); }
 
 // 把请求转发到某用户的 UserHub（改写 path + 注入 uid）
 function hubFetch(env, uid, request, url, hubPath) {
