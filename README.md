@@ -2,6 +2,10 @@
 
 AI 中枢把指令伸到远端末梢 —— 浏览器页面作为「设备」反连 Cloudflare，agent 通过 HTTP 下发任意 JS 代码在页面中执行，结果原路返回。全程走 CF 中继，验证内网穿透模型。
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/slightc/axon)
+
+> 点上方按钮会把本仓库 fork 到你的 GitHub，并自动创建 Worker、provision Durable Object、配好 Workers Builds，之后每次 push 自动部署。部署后记得把 `AGENT_TOKEN` 改成 Secret（见下方「设备 id 与安全」）。
+
 ```
 浏览器页面(设备) --wss--> Worker --> DeviceSession(DO) 持有长连接
 Agent --POST /exec--> Worker --> DeviceSession(DO) --wss--> 设备执行 --> 结果返回
