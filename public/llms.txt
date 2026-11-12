@@ -30,7 +30,7 @@ Base URL: https://axon.hansc.workers.dev
   收到的命令在本机 shell 执行。name 重复时服务端自动改名（nas → nas-2）并告知。
 - **浏览器**：油猴脚本 `userscript/axon.user.js` 或设备页面，同样 client key + name。
 
-不给 client key → legacy 模式：直接用高熵 device id 访问。agent 侧有两种方式：① 用 agent key / MCP 时，`exec` 的 `device` 直接填该 device id 即可（账号设备里找不到会自动回退按 id 直连）；② 或用 legacy 的 `AGENT_TOKEN` 调 `/exec?id=`。
+不给 client key → legacy 模式：直接用高熵 device id 访问。agent 侧有两种方式：① 用 agent key / MCP 时，`exec` 的 `device` 直接填该 device id（账号设备里找不到会自动回退按 id 直连）；② 或直接调 `/exec?id=`。是否需要鉴权取决于部署的 `AGENT_TOKEN`：留空 → legacy 无需鉴权，谁有 device id 谁能访问；设置了 → `/exec?id=` 需 `Authorization: Bearer <AGENT_TOKEN>`，且 agent 回退访问 legacy 设备时也要额外提供它（MCP 的 `exec` 填 `token` 参数，HTTP 加 `?token=`）。
 
 ## 概念
 

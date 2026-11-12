@@ -121,11 +121,15 @@ npm run deploy              # = wrangler deploy
 部署后拿到 `https://axon.<你的子域>.workers.dev`。
 设备页面：`https://.../?id=<任意设备名>`；agent 用同样的 `id` POST `/exec`。
 
-**生产 token** 改用 secret（别留明文 vars）：
+### AGENT_TOKEN：legacy 鉴权开关
+
+`AGENT_TOKEN` 只作用于 **legacy `/exec?id=` 直连通道**（账号模式走 client key / agent key，不受它影响）。部署时二选一：
+
+- **留空**（`vars.AGENT_TOKEN: ""`，本仓库默认）：legacy 设备**无需鉴权**，谁拿到 device id 谁能访问。方便，但 device id 一旦泄露即等于设备被接管 —— daemon 设备跑的是**本机 shell**，尤其注意别外泄带 id 的 URL。
+- **设一个强值**：legacy `/exec?id=` 需 `Authorization: Bearer <AGENT_TOKEN>`；并且 agent（agent key / MCP）**回退访问 legacy device-id 设备时也要额外提供它**（MCP 的 `exec` 填 `token` 参数，HTTP 加 `?token=<AGENT_TOKEN>`）——否则账号登录的 agent 仅凭 device id 就能绕过这道门槛。生产建议用 secret 而非明文 vars：
 
 ```bash
-wrangler secret put AGENT_TOKEN
-# 然后删掉 wrangler.jsonc 里的 vars.AGENT_TOKEN
+wrangler secret put AGENT_TOKEN   # secret 覆盖 vars，别在 wrangler.jsonc 留明文
 ```
 
 ## HTTP 接口
@@ -211,7 +215,7 @@ curl -N -X POST "https://axon.hansc.workers.dev/exec?id=<id>&stream=1" \
 
 - 设备 id 由 `crypto.getRandomValues` 生成，无法枚举。
 - Worker 对所有接口强制校验 id 格式（`[A-Za-z0-9_-]{16,128}`），弱 id / 缺失一律 `400`。
-- `/exec` 另需 `AGENT_TOKEN`，构成「不可猜 id + token」双重门槛。
+- `/exec` 的鉴权由 `AGENT_TOKEN` 控制（见「AGENT_TOKEN：legacy 鉴权开关」）：留空则仅凭 device id capability，设值则再加一道 token 门槛（含 agent 回退访问）。
 - 点击页面顶部的设备 id 可复制连接 URL，交给 agent 使用。
 
 ## 已知边界

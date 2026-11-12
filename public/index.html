@@ -147,8 +147,8 @@
     <div class="hint" id="hint">这个页面就是一台「设备」。Agent 通过 HTTP 下发代码，这里会执行并把结果回传。
 Agent 侧示例（在终端跑）：
   <b>curl -X POST "<span id="execUrl">…</span>" \
-    -H "Authorization: Bearer &lt;AGENT_TOKEN&gt;" \
-    --data 'document.body.style.background="#1a2a1a"; return document.title;'</b></div>
+    --data 'document.body.style.background="#1a2a1a"; return document.title;'</b>
+（legacy 默认免鉴权；若本部署设置了 AGENT_TOKEN，再加 <b>-H "Authorization: Bearer &lt;AGENT_TOKEN&gt;"</b>）</div>
     <div id="log"><div class="empty">等待 agent 下发代码…</div></div>
   </main>
 

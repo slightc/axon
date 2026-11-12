@@ -274,8 +274,9 @@ export default {
       if (!uid) return new Response("unauthorized", { status: 401 });
       const device = url.searchParams.get("device") || "";
       const streaming = url.searchParams.get("stream") === "1";
+      const legacyToken = url.searchParams.get("token") || request.headers.get("X-Agent-Token") || "";
       const command = await request.text();
-      return agentExec(env, uid, device, command, streaming);
+      return agentExec(env, uid, device, command, streaming, legacyToken);
     }
 
     // --- Agent MCP（Streamable HTTP，agent key 鉴权）---
@@ -448,7 +449,7 @@ async function handleMcp(rpc, uid, env) {
   if (m === "tools/list") {
     return reply({ tools: [
       { name: "list_devices", description: "列出当前账号下所有在线设备（name / type / 平台 / id）。", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
-      { name: "exec", description: "在指定设备上执行命令并返回输出。daemon 设备执行 shell 命令，浏览器设备执行 JS。device 用设备的 name 或 id 指定。", inputSchema: { type: "object", properties: { device: { type: "string", description: "设备 name 或 id" }, command: { type: "string", description: "要执行的命令 / 代码" } }, required: ["device", "command"], additionalProperties: false } },
+      { name: "exec", description: "在指定设备上执行命令并返回输出。daemon 设备执行 shell 命令，浏览器设备执行 JS。device 用设备的 name 或 id 指定（也可直接填 legacy 设备的 device id）。", inputSchema: { type: "object", properties: { device: { type: "string", description: "设备 name 或 id" }, command: { type: "string", description: "要执行的命令 / 代码" }, token: { type: "string", description: "可选；仅当目标是 legacy device-id 设备、且该部署设置了 AGENT_TOKEN 时才需要填它的值。部署把 AGENT_TOKEN 留空则无需此参数。" } }, required: ["device", "command"], additionalProperties: false } },
     ] });
   }
   if (m === "tools/call") {
@@ -462,7 +463,7 @@ async function handleMcp(rpc, uid, env) {
         return reply({ content: [{ type: "text", text: lines.length ? lines.join("\n") : "(没有在线设备)" }] });
       }
       if (name === "exec") {
-        const r = await agentExec(env, uid, args.device || "", args.command || "", false);
+        const r = await agentExec(env, uid, args.device || "", args.command || "", false, args.token || "");
         const data = await r.json();
         const text = data.ok ? (data.result || "(无输出)") : `错误: ${data.error || "exec failed"}`;
         return reply({ content: [{ type: "text", text }], isError: !data.ok });
@@ -476,15 +477,20 @@ async function handleMcp(rpc, uid, env) {
 }
 
 // agent / MCP 执行：先在账号设备(UserHub)里按 name/id 找；找不到且 device 像一个 legacy
-// device id（高熵、capability-link 访问），就直连它的 DeviceSession —— 这样无需 client key、
-// 仅凭 device id 即可被 agent 访问。内部直连，不再走 AGENT_TOKEN（调用者已过 agent key 鉴权）。
-async function agentExec(env, uid, device, command, streaming) {
+// device id（高熵、capability-link 访问），就回退直连它的 DeviceSession。
+// legacy 设备仍受 AGENT_TOKEN 保护：AGENT_TOKEN 留空 → 直接可访问（纯 device-id capability）；
+// AGENT_TOKEN 设了 → 调用方回退访问时必须额外提供它（与直连 /exec?id= 的门槛一致），
+// 否则账号登录的 agent 仅凭 device id 就能绕过 AGENT_TOKEN 打 legacy 设备。
+async function agentExec(env, uid, device, command, streaming, legacyToken) {
   const s = streaming ? "&stream=1" : "";
   const hubRes = await hubFor(env, uid).fetch(
     new Request(`https://x/hub/exec?uid=${uid}&device=${encodeURIComponent(device)}${s}`, { method: "POST", body: command })
   );
   if (hubRes.status !== 404) return hubRes;          // 账号里找到了（结果或流）
   if (isLegacyId(device)) {
+    if (env.AGENT_TOKEN && legacyToken !== env.AGENT_TOKEN) {
+      return Response.json({ ok: false, error: "该 device id 是 legacy 设备，本部署设置了 AGENT_TOKEN，需额外提供（HTTP 加 ?token=<AGENT_TOKEN>，MCP 的 exec 填 token 参数）" }, { status: 401 });
+    }
     return stubFor(env, device).fetch(
       new Request(`https://x/exec?id=${encodeURIComponent(device)}${s}`, { method: "POST", body: command })
     );

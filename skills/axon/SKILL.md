@@ -63,6 +63,7 @@ exec device=<name> command="document.querySelector('#kw').value='x'; return 'fil
 
 - `device` 用 name（人类可读，面板可改）或高熵 id 指定。
 - legacy 设备（没配 client key、用 device id 直连的）也能访问：`exec` 的 `device` 直接填它的 device id，账号设备里找不到会自动回退直连该 id。
+- 鉴权取决于部署的 `AGENT_TOKEN`：留空则 legacy 设备无需鉴权即可访问；设置了则回退访问 legacy 设备时需额外提供——MCP 的 `exec` 填 `token` 参数，HTTP 用 `/agent/exec?...&token=<AGENT_TOKEN>`。
 - daemon 设备的 command 是 **shell**；浏览器设备的 command 是 **JS**（用 `return` 返回值）。
 - 持续输出（`tail -f`、`logread -f`、烧录进度）必须用 `stream=1`，否则会超时。
 - 串口 / 烧录 / openocd 都是**组合 shell 命令**——daemon 不内置这些，靠本 skill 拼命令。
