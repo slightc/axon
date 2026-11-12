@@ -91,6 +91,7 @@ wrangler secret put AGENT_TOKEN
 ```bash
 cd daemon && npm install
 AXON_HOST=axon.hansc.workers.dev node axon-daemon.mjs
+# 发布到 npm 后可直接：AXON_HOST=axon.hansc.workers.dev npx agent-axon
 ```
 
 启动后打印设备 id（高熵，持久化到 `~/.axon/device-id`）。agent 用这个 id POST `/exec`，body 即命令：

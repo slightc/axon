@@ -1,15 +1,20 @@
 {
-  "name": "axon-daemon",
+  "name": "agent-axon",
   "version": "0.1.0",
-  "private": true,
+  "description": "Axon daemon — turn a machine behind NAT into an axon device so an AI agent can run shell commands on it over Cloudflare Workers.",
   "type": "module",
   "bin": {
+    "agent-axon": "./axon-daemon.mjs",
     "axon-daemon": "./axon-daemon.mjs"
   },
-  "scripts": {
-    "start": "node axon-daemon.mjs"
-  },
-  "dependencies": {
-    "ws": "^8.22.2"
-  }
+  "files": ["axon-daemon.mjs", "README.md"],
+  "scripts": { "start": "node axon-daemon.mjs" },
+  "engines": { "node": ">=18" },
+  "keywords": ["axon", "ai-agent", "cloudflare", "reverse-tunnel", "remote-control", "daemon", "nat-traversal"],
+  "repository": { "type": "git", "url": "git+https://github.com/slightc/axon.git", "directory": "daemon" },
+  "homepage": "https://github.com/slightc/axon#readme",
+  "bugs": { "url": "https://github.com/slightc/axon/issues" },
+  "author": "Hans",
+  "license": "MIT",
+  "dependencies": { "ws": "^8.22.2" }
 }
