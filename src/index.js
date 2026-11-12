@@ -413,6 +413,15 @@ export default {
       return Response.json({ ok: true });
     }
 
+    // 对外纯文本：强制 UTF-8（否则中文乱码）。skill.md 公开发布，不依赖仓库可见性。
+    if (path === "/llms.txt" || path === "/skill.md") {
+      const res = await env.ASSETS.fetch(request);
+      if (!res.ok) return res;
+      const h = new Headers(res.headers);
+      h.set("content-type", "text/plain; charset=utf-8");
+      return new Response(res.body, { status: res.status, headers: h });
+    }
+
     // 面板页面
     if (path === "/panel") {
       return env.ASSETS.fetch(new Request(new URL("/panel.html", url), request));

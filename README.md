@@ -73,7 +73,7 @@ curl -s -X POST "$BASE/agent/exec?device=<name|id>" \
 
 **Skill / llms.txt**
 
-把 <https://axon.hansc.workers.dev/llms.txt> 或仓库里的 `skills/axon/SKILL.md` 喂给 agent，让它自己学会用 axon。
+把 <https://axon.hansc.workers.dev/llms.txt> 或 <https://axon.hansc.workers.dev/skill.md> 喂给 agent，让它自己学会用 axon。两者都是公开 URL，仓库私有也能访问。
 
 ## 文件
 
