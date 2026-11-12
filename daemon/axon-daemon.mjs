@@ -19,11 +19,15 @@ import os from "os";
 import fs from "fs";
 import path from "path";
 
-const HOST = process.env.AXON_HOST || "axon.hansc.workers.dev";
+const argv = (flag) => { const i = process.argv.indexOf(flag); return i >= 0 ? process.argv[i + 1] : null; };
+const HOST = process.env.AXON_HOST || argv("--host") || "axon.hansc.workers.dev";
 const PROTO = process.env.AXON_INSECURE ? "ws" : "wss";
+const CLIENT_KEY = process.env.AXON_CLIENT_KEY || argv("--key") || "";  // 有则走多用户路径
+const NAME = process.env.AXON_NAME || argv("--name") || "";             // 设备名（可选）
 const EXEC_TIMEOUT = Number(process.env.AXON_EXEC_TIMEOUT || 12000);
 const STREAM_TIMEOUT = Number(process.env.AXON_STREAM_TIMEOUT || 600000); // 流式命令上限 10min
 const running = new Map(); // reqId -> 流式子进程（供 cancel 终止）
+let currentName = NAME;    // 服务端可能改名，以服务端返回为准
 
 // 高熵、不可暴力猜测的设备 id（dev_ + 32 字符 base62），持久化到 ~/.axon/device-id
 function loadOrCreateId() {
@@ -36,8 +40,17 @@ function loadOrCreateId() {
   try { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(file, id); } catch {}
   return id;
 }
-const ID = process.env.AXON_DEVICE_ID || loadOrCreateId();
-const wsUrl = `${PROTO}://${HOST}/connect?id=${encodeURIComponent(ID)}`;
+const ID = process.env.AXON_DEVICE_ID || argv("--id") || loadOrCreateId();
+// 有 client key → 多用户路径（归属账号，可在面板看到）；
+// 没有 → legacy：直接用 device id 访问（agent 侧配 AGENT_TOKEN）
+let wsUrl;
+if (CLIENT_KEY) {
+  const p = new URLSearchParams({ key: CLIENT_KEY, type: "daemon", id: ID });
+  if (NAME) p.set("name", NAME);
+  wsUrl = `${PROTO}://${HOST}/connect?${p.toString()}`;
+} else {
+  wsUrl = `${PROTO}://${HOST}/connect?id=${encodeURIComponent(ID)}`;
+}
 
 const ts = () => new Date().toISOString().slice(11, 19);
 const log = (...a) => console.log(ts(), ...a);
@@ -85,6 +98,11 @@ function connect() {
   });
   ws.on("message", async (data) => {
     let msg; try { msg = JSON.parse(data.toString()); } catch { return; }
+    if (msg.type === "welcome") {
+      currentName = msg.name;
+      log(`✓ 注册为 name=${msg.name}  id=${msg.deviceId}`);
+      return;
+    }
     if (msg.type === "exec") {
       if (msg.stream) {
         runCommandStream(msg.reqId, msg.code);
@@ -109,6 +127,8 @@ function connect() {
 process.on("SIGINT", () => { manualExit = true; clearTimeout(reconnectTimer); log("bye"); try { ws && ws.close(); } catch {} process.exit(0); });
 
 console.log(`\n  🧠 Axon daemon`);
+console.log(`  mode      : ${CLIENT_KEY ? "多用户 (client key)" : "legacy (device id)"}`);
+if (NAME) console.log(`  name      : ${NAME}（服务端可能改名）`);
 console.log(`  device id : ${ID}`);
 console.log(`  worker    : ${PROTO}://${HOST}`);
 console.log(`  ⚠️  收到的命令会在本机 shell 直接执行 —— 只连你信任的 worker，并务必给 /exec 配 AGENT_TOKEN\n`);

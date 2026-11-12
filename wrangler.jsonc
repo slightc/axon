@@ -13,11 +13,18 @@
   // 一台设备一个 Durable Object 实例，持有其 WebSocket 长连接
   "durable_objects": {
     "bindings": [
-      { "name": "DEVICE", "class_name": "DeviceSession" }
+      { "name": "DEVICE", "class_name": "DeviceSession" },
+      { "name": "USERHUB", "class_name": "UserHub" }
     ]
   },
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["DeviceSession"] }
+    { "tag": "v1", "new_sqlite_classes": ["DeviceSession"] },
+    { "tag": "v2", "new_sqlite_classes": ["UserHub"] }
+  ],
+
+  // 用户体系 / client key / agent key / 设备注册表
+  "d1_databases": [
+    { "binding": "DB", "database_name": "axon-db", "database_id": "f11fb590-4257-42c5-b3df-63a8e34cd429" }
   ],
 
   // demo 用明文 token；生产请改用：wrangler secret put AGENT_TOKEN
