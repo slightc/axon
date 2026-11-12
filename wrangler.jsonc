@@ -31,7 +31,7 @@
   "vars": {
     "AGENT_TOKEN": "change-me-demo-token",
     "PUBLIC_ORIGIN": "https://axon.hansc.workers.dev",
-    "GITHUB_CLIENT_ID": ""
+    "GITHUB_CLIENT_ID": "Ov23liNcVOW4Nzl7dCEN"
   }
   // GITHUB_CLIENT_SECRET 和 JWT_SECRET 用 secret 配置：
   //   wrangler secret put GITHUB_CLIENT_SECRET
