@@ -7,7 +7,9 @@
   // 未命中静态文件的请求（/connect、/exec、/status）才会进入 Worker。
   "assets": {
     "directory": "./public",
-    "binding": "ASSETS"
+    "binding": "ASSETS",
+    // 这两个纯文本路由先走 Worker，以便强制 charset=utf-8（否则静态直出中文乱码）
+    "run_worker_first": ["/llms.txt", "/skill.md"]
   },
 
   // 一台设备一个 Durable Object 实例，持有其 WebSocket 长连接
