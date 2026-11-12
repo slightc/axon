@@ -8,6 +8,7 @@
  */
 
 import { signJWT, verifyJWT, setCookie, getCookie, requireUser, githubAuthUrl, githubExchange, githubUser, upsertGithubUser } from "./auth.js";
+import { protectedResourceMetadata, authServerMetadata, handleRegister, handleAuthorizeGet, handleAuthorizePost, handleToken, oauthPreflight } from "./oauth.js";
 
 // ===== Legacy：一台设备一个 DeviceSession（旧随机 id + AGENT_TOKEN，保持兼容）=====
 export class DeviceSession {
@@ -277,10 +278,27 @@ export default {
     // --- Agent MCP（Streamable HTTP，agent key 鉴权）---
     if (path === "/mcp" && request.method === "POST") {
       const uid = await userIdForAgentKey(env, request, ctx);
-      if (!uid) return new Response("unauthorized", { status: 401, headers: { "WWW-Authenticate": "Bearer" } });
+      if (!uid) {
+        const o = env.PUBLIC_ORIGIN || url.origin;
+        return new Response("unauthorized", { status: 401, headers: { "WWW-Authenticate": `Bearer resource_metadata="${o}/.well-known/oauth-protected-resource"` } });
+      }
       return handleMcp(await request.json().catch(() => ({})), uid, env);
     }
     if (path === "/mcp") return new Response("MCP endpoint: POST JSON-RPC with header Authorization: Bearer <agent_key>", { status: 405 });
+
+    // ===== MCP OAuth：发现 / 动态注册 / 授权 / 令牌 =====
+    if (path === "/.well-known/oauth-protected-resource" || path.startsWith("/.well-known/oauth-protected-resource/")) {
+      if (request.method === "OPTIONS") return oauthPreflight();
+      return protectedResourceMetadata(env, request);
+    }
+    if (path === "/.well-known/oauth-authorization-server" || path.startsWith("/.well-known/oauth-authorization-server/")) {
+      if (request.method === "OPTIONS") return oauthPreflight();
+      return authServerMetadata(env, request);
+    }
+    if (path === "/register") return handleRegister(request, env);
+    if (path === "/authorize" && request.method === "GET") return handleAuthorizeGet(request, env, url);
+    if (path === "/authorize" && request.method === "POST") return handleAuthorizePost(request, env);
+    if (path === "/token") return handleToken(request, env);
 
     // --- Legacy：/connect?id= · /exec?id= · /status?id= ---
     if (path === "/connect") {
@@ -318,9 +336,14 @@ export default {
       if (!gh) return new Response("github user fetch failed", { status: 400 });
       const uid = await upsertGithubUser(env, gh, randomId);
       const jwt = await signJWT({ uid, exp: Math.floor(Date.now() / 1000) + 30 * 24 * 3600 }, env.JWT_SECRET);
-      const headers = new Headers({ Location: "/panel" });
+      // 若是 OAuth 授权流程中途来登录的，回跳到原 /authorize；否则进面板
+      let dest = "/panel";
+      const rt = getCookie(request, "axon_return_to");
+      if (rt) { try { const d = decodeURIComponent(rt); if (d.startsWith("/authorize")) dest = d; } catch {} }
+      const headers = new Headers({ Location: dest });
       headers.append("Set-Cookie", setCookie("axon_session", jwt, 30 * 24 * 3600));
       headers.append("Set-Cookie", setCookie("axon_oauth_state", "", 0));
+      headers.append("Set-Cookie", setCookie("axon_return_to", "", 0));
       return new Response(null, { status: 302, headers });
     }
     if (path === "/auth/logout") {

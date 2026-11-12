@@ -48,3 +48,24 @@ CREATE TABLE IF NOT EXISTS devices (
 );
 CREATE INDEX IF NOT EXISTS idx_devices_user ON devices(user_id);
 CREATE INDEX IF NOT EXISTS idx_devices_name ON devices(user_id, name);
+
+-- ===== MCP OAuth（让 claude.ai 等连接器一键授权）=====
+-- 动态注册（RFC 7591）的 OAuth client：claude.ai 连接时自动注册，拿到 client_id
+CREATE TABLE IF NOT EXISTS oauth_clients (
+  client_id     TEXT PRIMARY KEY,
+  redirect_uris TEXT NOT NULL,      -- JSON array，授权时精确匹配
+  client_name   TEXT,
+  created_at    INTEGER NOT NULL
+);
+
+-- 一次性授权码：用户在 /authorize 批准后生成，短期有效，/token 用 PKCE 校验后换 access_token
+CREATE TABLE IF NOT EXISTS oauth_codes (
+  code           TEXT PRIMARY KEY,
+  client_id      TEXT NOT NULL,
+  user_id        TEXT NOT NULL,
+  redirect_uri   TEXT NOT NULL,
+  code_challenge TEXT NOT NULL,     -- PKCE S256 challenge
+  resource       TEXT,              -- RFC 8707 目标资源
+  agent_key      TEXT NOT NULL,     -- 待发的 access_token（换取成功才写入 agent_keys）
+  expires_at     INTEGER NOT NULL
+);
