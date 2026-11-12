@@ -52,6 +52,86 @@
   pre.result { color: var(--green); border-top: 1px solid var(--border); }
   pre.error { color: var(--red); border-top: 1px solid var(--border); }
   .empty { color: var(--muted); text-align: center; padding: 40px; }
+
+  /* header 按钮 */
+  .hbtn {
+    font-family: var(--mono); font-size: 12px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--panel); color: var(--text);
+    padding: 5px 11px; border-radius: 6px; text-decoration: none;
+    display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  }
+  .hbtn:hover { border-color: var(--blue); color: var(--blue); }
+  .hbtn.primary { background: var(--blue); color: #05070a; border-color: var(--blue); font-weight: 600; }
+  .hbtn.primary:hover { background: #79b8ff; color: #05070a; }
+
+  /* agent 接入弹层 */
+  .mask {
+    position: fixed; inset: 0; background: rgba(1,4,9,.72);
+    display: none; align-items: flex-start; justify-content: center;
+    padding: 40px 16px; overflow-y: auto; z-index: 50;
+  }
+  .mask.show { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    width: 100%; max-width: 620px; box-shadow: 0 16px 48px rgba(0,0,0,.5);
+  }
+  .modal .mhead {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 18px; border-bottom: 1px solid var(--border);
+  }
+  .modal .mhead .mt { font-weight: 600; font-size: 15px; }
+  .modal .mhead .mx {
+    margin-left: auto; cursor: pointer; color: var(--muted);
+    background: none; border: none; font-size: 20px; line-height: 1; padding: 0 4px;
+  }
+  .modal .mhead .mx:hover { color: var(--text); }
+  .modal .mbody { padding: 16px 18px; }
+  .modal .lead { color: var(--muted); margin: 0 0 16px; line-height: 1.6; }
+  .modal .lead b { color: var(--text); }
+  .step { margin-bottom: 18px; }
+  .step .sh {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px;
+  }
+  .step .sn {
+    width: 20px; height: 20px; border-radius: 50%; flex: none;
+    background: var(--blue); color: #05070a; font-weight: 700; font-size: 12px;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .step .sh b { font-weight: 600; }
+  .step .sd { color: var(--muted); font-size: 12px; margin: 0 0 8px 28px; line-height: 1.6; }
+  .step .sd a { color: var(--blue); }
+  .ml28 { margin-left: 28px; }
+  .tabs { display: flex; gap: 6px; margin: 0 0 10px 28px; flex-wrap: wrap; }
+  .tab {
+    font-family: var(--mono); font-size: 12px; cursor: pointer;
+    border: 1px solid var(--border); background: transparent; color: var(--muted);
+    padding: 4px 10px; border-radius: 6px;
+  }
+  .tab.on { border-color: var(--blue); color: var(--blue); background: rgba(88,166,255,.08); }
+  .codebox { position: relative; margin-left: 28px; }
+  .codebox pre {
+    background: #010409; border: 1px solid var(--border); border-radius: 6px;
+    padding: 12px 40px 12px 12px; font-size: 12px; color: #c9d1d9;
+    white-space: pre; overflow-x: auto;
+  }
+  .copy {
+    position: absolute; top: 8px; right: 8px; cursor: pointer;
+    background: var(--panel); border: 1px solid var(--border); color: var(--muted);
+    border-radius: 5px; font-size: 11px; padding: 3px 8px; font-family: var(--mono);
+  }
+  .copy:hover { border-color: var(--blue); color: var(--blue); }
+  .pane { display: none; }
+  .pane.on { display: block; }
+  .btn-row { margin-left: 28px; }
+  .go {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--blue); color: #05070a; font-weight: 600;
+    border: none; border-radius: 6px; padding: 7px 14px; font-size: 12px;
+    text-decoration: none; cursor: pointer; font-family: var(--mono);
+  }
+  .go:hover { background: #79b8ff; }
+  .note { color: var(--muted); font-size: 11.5px; margin: 14px 0 0; line-height: 1.6; border-top: 1px dashed var(--border); padding-top: 12px; }
+  .note code { color: var(--blue); }
 </style>
 </head>
 <body>
@@ -60,7 +140,8 @@
     <span class="pill"><span id="dot" class="dot off"></span><span id="state">连接中…</span></span>
     <span class="pill">设备ID <code class="kv" id="devId">—</code></span>
     <span class="pill" id="countPill">已执行 <code class="kv" id="count">0</code></span>
-    <a href="/axon.user.js" class="pill" style="margin-left:auto;color:var(--blue);text-decoration:none" title="装了 Tampermonkey 后点此一键安装，可在任意网页作为设备连接">📜 安装油猴脚本</a>
+    <button id="agentBtn" class="hbtn primary" style="margin-left:auto" title="把这个 axon 接入你的 AI agent（Claude 等）">🤖 接入 Agent</button>
+    <a href="/axon.user.js" class="hbtn" title="装了 Tampermonkey 后点此一键安装，可在任意网页作为设备连接">📜 安装油猴脚本</a>
   </header>
   <main>
     <div class="hint" id="hint">这个页面就是一台「设备」。Agent 通过 HTTP 下发代码，这里会执行并把结果回传。
@@ -70,6 +151,120 @@ Agent 侧示例（在终端跑）：
     --data 'document.body.style.background="#1a2a1a"; return document.title;'</b></div>
     <div id="log"><div class="empty">等待 agent 下发代码…</div></div>
   </main>
+
+  <!-- Agent 接入引导弹层 -->
+  <div class="mask" id="agentMask">
+    <div class="modal">
+      <div class="mhead">
+        <span class="mt">🤖 把 Axon 接入你的 Agent</span>
+        <button class="mx" id="agentClose" title="关闭">×</button>
+      </div>
+      <div class="mbody">
+        <p class="lead">让 AI agent（Claude 等）通过 axon 连接并操作你名下所有在线设备 —— 远程电脑跑 shell、浏览器页面跑 JS、硬件串口烧录调试。<b>两步接入</b>。</p>
+
+        <div class="step">
+          <div class="sh"><span class="sn">1</span><b>生成 agent key</b></div>
+          <p class="sd">登录面板，在「Agent Keys」新建一个 key —— agent 凭它操作你的设备。</p>
+          <div class="btn-row"><a class="go" id="panelLink" href="/panel" target="_blank" rel="noopener">打开面板 /panel →</a></div>
+        </div>
+
+        <div class="step">
+          <div class="sh"><span class="sn">2</span><b>选一种接入方式</b></div>
+          <div class="tabs">
+            <button class="tab on" data-pane="mcp">MCP（推荐 Claude）</button>
+            <button class="tab" data-pane="http">HTTP API</button>
+            <button class="tab" data-pane="skill">Skill / llms.txt</button>
+          </div>
+
+          <div class="pane on" data-pane="mcp">
+            <p class="sd" style="margin-left:0">Claude Code / 支持 Streamable HTTP MCP 的 agent，把下面加进 MCP 配置（把 key 换成你的）：</p>
+            <div class="codebox">
+              <button class="copy" data-copy="mcpcfg">复制</button>
+              <pre id="mcpcfg"></pre>
+            </div>
+            <p class="sd" style="margin-top:10px">claude.ai 自定义连接器：URL 填 <code id="mcpurl"></code>，鉴权 Bearer + agent key。工具：<code>list_devices</code> / <code>exec</code>。</p>
+          </div>
+
+          <div class="pane" data-pane="http">
+            <p class="sd" style="margin-left:0">任何能发 HTTP 的 agent，用 agent key 作 Bearer：</p>
+            <div class="codebox">
+              <button class="copy" data-copy="httpcmd">复制</button>
+              <pre id="httpcmd"></pre>
+            </div>
+            <p class="sd" style="margin-top:10px">长输出（<code>tail -f</code>、烧录进度）加 <code>&amp;stream=1</code> 走 NDJSON 流。</p>
+          </div>
+
+          <div class="pane" data-pane="skill">
+            <p class="sd" style="margin-left:0">给 agent 喂一份说明，让它自己学会怎么用 axon：</p>
+            <div class="btn-row" style="display:flex;gap:8px;flex-wrap:wrap">
+              <a class="go" id="llmsLink" href="/llms.txt" target="_blank" rel="noopener">llms.txt →</a>
+              <a class="go" href="https://github.com/slightc/axon/blob/main/skills/axon/SKILL.md" target="_blank" rel="noopener" style="background:var(--panel);color:var(--text);border:1px solid var(--border)">Agent Skill →</a>
+            </div>
+          </div>
+        </div>
+
+        <p class="note">不配 agent key 也能用 <b>legacy 模式</b>：设备用高熵 device id 直连，agent 侧用 <code>AGENT_TOKEN</code> 调 <code>/exec?id=...</code>（即本页顶部示例）。多设备、多用户、按名字指定设备，才需要账号 + agent key。</p>
+      </div>
+    </div>
+  </div>
+
+<script>
+// Agent 接入弹层：按当前域名动态生成配置
+(function () {
+  const origin = location.origin;
+  const mask = document.getElementById("agentMask");
+  const open = () => { fill(); mask.classList.add("show"); };
+  const close = () => mask.classList.remove("show");
+
+  document.getElementById("agentBtn").onclick = open;
+  document.getElementById("agentClose").onclick = close;
+  mask.onclick = (e) => { if (e.target === mask) close(); };
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+
+  function fill() {
+    const mcp = {
+      mcpServers: {
+        axon: {
+          type: "http",
+          url: origin + "/mcp",
+          headers: { Authorization: "Bearer <你的 agent key>" }
+        }
+      }
+    };
+    document.getElementById("mcpcfg").textContent = JSON.stringify(mcp, null, 2);
+    document.getElementById("mcpurl").textContent = origin + "/mcp";
+    document.getElementById("httpcmd").textContent =
+      `BASE="${origin}"\n` +
+      `# 列出在线设备\n` +
+      `curl -s "$BASE/agent/devices" \\\n` +
+      `  -H "Authorization: Bearer <agent key>"\n\n` +
+      `# 在设备上执行（device = name 或 id）\n` +
+      `curl -s -X POST "$BASE/agent/exec?device=<name|id>" \\\n` +
+      `  -H "Authorization: Bearer <agent key>" \\\n` +
+      `  --data 'uname -a'`;
+  }
+
+  // tab 切换
+  mask.querySelectorAll(".tab").forEach((t) => {
+    t.onclick = () => {
+      const p = t.dataset.pane;
+      mask.querySelectorAll(".tab").forEach((x) => x.classList.toggle("on", x === t));
+      mask.querySelectorAll(".pane").forEach((x) => x.classList.toggle("on", x.dataset.pane === p));
+    };
+  });
+
+  // 复制
+  mask.querySelectorAll(".copy").forEach((b) => {
+    b.onclick = () => {
+      const txt = document.getElementById(b.dataset.copy).textContent;
+      navigator.clipboard?.writeText(txt);
+      const old = b.textContent;
+      b.textContent = "已复制 ✓";
+      setTimeout(() => (b.textContent = old), 1200);
+    };
+  });
+})();
+</script>
 
 <script>
 (function () {
