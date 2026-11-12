@@ -225,9 +225,11 @@ Agent 侧示例（在终端跑）：
       ws.send(JSON.stringify({ type: "result", reqId: msg.reqId, ...res }));
     };
 
-    ws.onclose = () => {
-      setState(false, "已断开 · 3s 后重连");
+    ws.onclose = (e) => {
       clearInterval(pingTimer);
+      // 被新连接顶替（同 device id 已有另一个连接，如另开的标签页或油猴脚本）→ 不重连
+      if (e && e.reason === "replaced") { setState(false, "已被新连接取代"); return; }
+      setState(false, "已断开 · 3s 后重连");
       setTimeout(connect, 3000);
     };
     ws.onerror = () => { try { ws.close(); } catch {} };
