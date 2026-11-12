@@ -82,6 +82,31 @@ wrangler secret put AGENT_TOKEN
 
 控件里的设备 id 同样是高熵不可猜、按站点持久化，点一下即可复制交给 agent。脚本用 `@grant none` 运行在页面上下文，因此下发的代码能直接操作该页面的真实 DOM —— 个别启用了严格 CSP（`connect-src` 或禁 `unsafe-eval`）的站点可能连不上或无法执行，属预期限制。
 
+## 真实电脑 daemon（shell / 命令）
+
+`daemon/axon-daemon.mjs` 让无公网 IP 的真实电脑成为一台 axon 设备：反连 worker，把收到的 `code` 当作本机 shell 命令执行并回传 stdout / stderr / 退出码。Worker 与 agent 接口和浏览器设备完全一致 —— 浏览器把 `code` 当 JS 跑，daemon 把 `code` 当命令跑。
+
+运行：
+
+```bash
+cd daemon && npm install
+AXON_HOST=axon.hansc.workers.dev node axon-daemon.mjs
+```
+
+启动后打印设备 id（高熵，持久化到 `~/.axon/device-id`）。agent 用这个 id POST `/exec`，body 即命令：
+
+```bash
+curl -X POST "https://axon.hansc.workers.dev/exec?id=<id>" \
+  -H "Authorization: Bearer <AGENT_TOKEN>" --data 'uname -a'
+# => { "ok": true, "result": "<stdout>", "exitCode": 0, "logs": ["<stderr>"] }
+```
+
+配置项：`AXON_HOST`、`AXON_DEVICE_ID`、`AXON_EXEC_TIMEOUT`（默认 12000ms，需 < worker 的 15s）、`AXON_INSECURE`（本地用 `ws://`）。
+
+> ⚠️ **安全**：daemon 会在本机 shell 直接执行收到的任意命令。只连你信任的 worker，务必给 `/exec` 配强 `AGENT_TOKEN`，别用高权限账号跑它。每条命令都会打印在 daemon 控制台，便于审计。
+>
+> 当前为一次性执行：单命令上限 12s、输出执行结束后一次性返回。长时命令、`tail -f`、串口 / openocd 的持续输出需要流式协议（下一步）。
+
 ## 设备 id 与安全
 
 每台设备用一个高熵、不可暴力猜测的 id（`dev_` + 32 字符 base62 ≈ 190 bit）。设备页面首次打开时自动生成，存入 `localStorage` 作为持久身份，并写回 URL —— 这条带 id 的 URL 就是该设备的 **capability link**：谁拿到它，才能连接并控制这台设备。

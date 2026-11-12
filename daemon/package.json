@@ -1,0 +1,15 @@
+{
+  "name": "axon-daemon",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "axon-daemon": "./axon-daemon.mjs"
+  },
+  "scripts": {
+    "start": "node axon-daemon.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.22.2"
+  }
+}
