@@ -141,6 +141,7 @@
     <span class="pill">设备ID <code class="kv" id="devId">—</code></span>
     <span class="pill" id="countPill">已执行 <code class="kv" id="count">0</code></span>
     <button id="agentBtn" class="hbtn primary" style="margin-left:auto" title="把这个 axon 接入你的 AI agent（Claude 等）">🤖 接入 Agent</button>
+    <button id="pcBtn" class="hbtn" title="把一台真实电脑变成 axon 设备（本机 shell 执行）">💻 电脑端接入</button>
     <a href="/axon.user.js" class="hbtn" title="装了 Tampermonkey 后点此一键安装，可在任意网页作为设备连接">📜 安装油猴脚本</a>
   </header>
   <main>
@@ -211,6 +212,52 @@ Agent 侧示例（在终端跑）：
     </div>
   </div>
 
+  <!-- 电脑端接入弹层 -->
+  <div class="mask" id="pcMask">
+    <div class="modal">
+      <div class="mhead">
+        <span class="mt">💻 把电脑接入 Axon</span>
+        <button class="mx" id="pcClose" title="关闭">×</button>
+      </div>
+      <div class="mbody">
+        <p class="lead">把一台<b>真实电脑</b>（无公网 IP 也行）变成 axon 设备：它反连 worker，agent 下发的命令在本机 <b>shell</b> 执行并把输出回传。前提：本机装了 <b>Node</b> 或 <b>Bun</b>。</p>
+
+        <div class="step">
+          <div class="sh"><span class="sn">1</span><b>启动 daemon（选一种模式）</b></div>
+          <div class="tabs">
+            <button class="tab on" data-pane="acct">账号模式（client key）</button>
+            <button class="tab" data-pane="legacy">legacy（device id）</button>
+          </div>
+
+          <div class="pane on" data-pane="acct">
+            <p class="sd" style="margin-left:0">先在 <a href="/panel" target="_blank" rel="noopener">面板</a> 生成 client key，然后一行启动：</p>
+            <div class="codebox">
+              <button class="copy" data-copy="pcCmdAcct">复制</button>
+              <pre id="pcCmdAcct"></pre>
+            </div>
+            <p class="sd" style="margin-top:8px">设备归属你的账号、面板可见、可按 <code>name</code> 指定；重名服务端自动改名（<code>nas → nas-2</code>）。</p>
+          </div>
+
+          <div class="pane" data-pane="legacy">
+            <p class="sd" style="margin-left:0">不用登录，直接跑：</p>
+            <div class="codebox">
+              <button class="copy" data-copy="pcCmdLegacy">复制</button>
+              <pre id="pcCmdLegacy"></pre>
+            </div>
+            <p class="sd" style="margin-top:8px">启动后打印一个高熵 device id，agent 用这个 id 访问（<code>AGENT_TOKEN</code> 留空则免鉴权）。</p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="sh"><span class="sn">2</span><b>让 agent 操作它</b></div>
+          <p class="sd">在接入了 axon 的 agent 里，用设备 name 或 id 执行 shell —— 接入方式见顶部「🤖 接入 Agent」。</p>
+        </div>
+
+        <p class="note">daemon 在本机 shell 直接执行收到的命令，<b>只连你信任的 worker</b>，别用高权限账号跑。自建部署时把命令里的 <code>AXON_HOST</code> 换成你的 worker 域名。每条命令都会打印在 daemon 控制台便于审计。</p>
+      </div>
+    </div>
+  </div>
+
 <script>
 // Agent 接入弹层：按当前域名动态生成配置
 (function () {
@@ -257,6 +304,41 @@ Agent 侧示例（在终端跑）：
   });
 
   // 复制
+  mask.querySelectorAll(".copy").forEach((b) => {
+    b.onclick = () => {
+      const txt = document.getElementById(b.dataset.copy).textContent;
+      navigator.clipboard?.writeText(txt);
+      const old = b.textContent;
+      b.textContent = "已复制 ✓";
+      setTimeout(() => (b.textContent = old), 1200);
+    };
+  });
+})();
+
+// 电脑端接入弹层：命令里的 AXON_HOST 按当前域名动态填
+(function () {
+  const host = location.host;
+  const mask = document.getElementById("pcMask");
+  if (!mask) return;
+  const open = () => { fill(); mask.classList.add("show"); };
+  const close = () => mask.classList.remove("show");
+  document.getElementById("pcBtn").onclick = open;
+  document.getElementById("pcClose").onclick = close;
+  mask.onclick = (e) => { if (e.target === mask) close(); };
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+  function fill() {
+    document.getElementById("pcCmdAcct").textContent =
+      `AXON_CLIENT_KEY=<client key> AXON_NAME=my-pc AXON_HOST=${host} npx @slightc/axon`;
+    document.getElementById("pcCmdLegacy").textContent =
+      `AXON_HOST=${host} npx @slightc/axon`;
+  }
+  mask.querySelectorAll(".tab").forEach((t) => {
+    t.onclick = () => {
+      const p = t.dataset.pane;
+      mask.querySelectorAll(".tab").forEach((x) => x.classList.toggle("on", x === t));
+      mask.querySelectorAll(".pane").forEach((x) => x.classList.toggle("on", x.dataset.pane === p));
+    };
+  });
   mask.querySelectorAll(".copy").forEach((b) => {
     b.onclick = () => {
       const txt = document.getElementById(b.dataset.copy).textContent;
