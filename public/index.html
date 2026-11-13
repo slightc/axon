@@ -230,7 +230,7 @@ Agent 侧示例（在终端跑）：
           </div>
 
           <div class="pane on" data-pane="acct">
-            <p class="sd" style="margin-left:0">先在 <a href="/panel" target="_blank" rel="noopener">面板</a> 生成 client key，然后一行启动：</p>
+            <p class="sd" style="margin-left:0">先在 <a href="/panel" target="_blank" rel="noopener">面板</a> 生成 client key，然后下载脚本启动（需本机 Node）：</p>
             <div class="codebox">
               <button class="copy" data-copy="pcCmdAcct">复制</button>
               <pre id="pcCmdAcct"></pre>
@@ -239,7 +239,7 @@ Agent 侧示例（在终端跑）：
           </div>
 
           <div class="pane" data-pane="legacy">
-            <p class="sd" style="margin-left:0">不用登录，直接跑：</p>
+            <p class="sd" style="margin-left:0">不用登录，下载脚本直接跑（需本机 Node）：</p>
             <div class="codebox">
               <button class="copy" data-copy="pcCmdLegacy">复制</button>
               <pre id="pcCmdLegacy"></pre>
@@ -327,10 +327,11 @@ Agent 侧示例（在终端跑）：
   mask.onclick = (e) => { if (e.target === mask) close(); };
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
   function fill() {
+    const dl = `curl -fsSL ${location.origin}/axon-daemon.mjs -o axon-daemon.mjs && npm i ws`;
     document.getElementById("pcCmdAcct").textContent =
-      `AXON_CLIENT_KEY=<client key> AXON_NAME=my-pc AXON_HOST=${host} npx @slightc/axon`;
+      `${dl}\nAXON_CLIENT_KEY=<client key> AXON_NAME=my-pc AXON_HOST=${host} node axon-daemon.mjs`;
     document.getElementById("pcCmdLegacy").textContent =
-      `AXON_HOST=${host} npx @slightc/axon`;
+      `${dl}\nAXON_HOST=${host} node axon-daemon.mjs`;
   }
   mask.querySelectorAll(".tab").forEach((t) => {
     t.onclick = () => {
