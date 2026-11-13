@@ -6,11 +6,14 @@
  * 时把 code 当作本机 shell 命令执行，收集 stdout/stderr 回传。Worker / agent 接口
  * 无需任何改动 —— 浏览器设备把 code 当 JS 跑，daemon 把 code 当命令跑。
  *
- * 配置（环境变量）：
- *   AXON_HOST          worker 域名，默认 axon.hansc.workers.dev
- *   AXON_INSECURE      置任意值则用 ws:// 而非 wss://（本地调试）
- *   AXON_DEVICE_ID     指定设备 id（默认自动生成并持久化到 ~/.axon/device-id）
- *   AXON_EXEC_TIMEOUT  单命令超时 ms，默认 12000（需 < worker 的 15s）
+ * 配置（环境变量，也可用 --flag 形式传参）：
+ *   AXON_HOST           worker 域名，默认 axon.hansc.workers.dev
+ *   AXON_CLIENT_KEY     账号模式：设备归属你的账号、面板可见（在 /panel 生成）；不填则 legacy
+ *   AXON_NAME           设备名（账号模式下可指定，重名服务端自动改名 nas → nas-2）
+ *   AXON_DEVICE_ID      指定设备 id（默认自动生成并持久化到 ~/.axon/device-id）
+ *   AXON_EXEC_TIMEOUT   单命令超时 ms，默认 12000（需 < worker 的 15s）
+ *   AXON_STREAM_TIMEOUT 流式命令超时 ms，默认 600000（10min）
+ *   AXON_INSECURE       置任意值则用 ws:// 而非 wss://（本地调试）
  */
 import WebSocket from "ws";
 import { spawn } from "child_process";
@@ -127,9 +130,11 @@ function connect() {
 process.on("SIGINT", () => { manualExit = true; clearTimeout(reconnectTimer); log("bye"); try { ws && ws.close(); } catch {} process.exit(0); });
 
 console.log(`\n  🧠 Axon daemon`);
-console.log(`  mode      : ${CLIENT_KEY ? "多用户 (client key)" : "legacy (device id)"}`);
+console.log(`  mode      : ${CLIENT_KEY ? "账号模式 (client key)" : "legacy (device id)"}`);
 if (NAME) console.log(`  name      : ${NAME}（服务端可能改名）`);
 console.log(`  device id : ${ID}`);
 console.log(`  worker    : ${PROTO}://${HOST}`);
-console.log(`  ⚠️  收到的命令会在本机 shell 直接执行 —— 只连你信任的 worker，并务必给 /exec 配 AGENT_TOKEN\n`);
+console.log(`  ⚠️  收到的命令会在本机 shell 直接执行 —— 只连你信任的 worker，别用高权限账号跑。`);
+if (!CLIENT_KEY) console.log(`      legacy：谁拿到上面的 device id 谁就能执行（worker 的 AGENT_TOKEN 为空时）。`);
+console.log();
 connect();
