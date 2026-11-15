@@ -21,12 +21,16 @@ export class DeviceSession {
   }
 
   async fetch(request) {
-    const url = new URL(request.url);
-    switch (url.pathname) {
-      case "/connect": return this.handleConnect(request);
-      case "/exec":    return this.handleExec(request);
-      case "/status":  return Response.json({ online: !!this.deviceSocket, meta: this.meta });
-      default:         return new Response("not found", { status: 404 });
+    try {
+      const url = new URL(request.url);
+      switch (url.pathname) {
+        case "/connect": return this.handleConnect(request);
+        case "/exec":    return this.handleExec(request);
+        case "/status":  return Response.json({ online: !!this.deviceSocket, meta: this.meta });
+        default:         return new Response("not found", { status: 404 });
+      }
+    } catch (e) {
+      return Response.json({ ok: false, error: "DO error: " + (e && e.message || String(e)), stack: e && e.stack ? String(e.stack).slice(0, 500) : null }, { status: 500 });
     }
   }
 
