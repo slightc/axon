@@ -11,7 +11,7 @@ import { signJWT, verifyJWT, setCookie, getCookie, requireUser, githubAuthUrl, g
 import { protectedResourceMetadata, authServerMetadata, handleRegister, handleAuthorizeGet, handleAuthorizePost, handleToken, oauthPreflight } from "./oauth.js";
 
 // ===== Legacy：一台设备一个 DeviceSession（旧随机 id + AGENT_TOKEN，保持兼容）=====
-export class DeviceSession {
+export class DeviceSessionV2 {
   constructor(state, env) {
     this.state = state;
     this.env = env;
