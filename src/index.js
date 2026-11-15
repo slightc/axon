@@ -325,12 +325,14 @@ export default {
       if (unauth) return unauth;
       const id = getDeviceId(url);
       if (!id) return new Response("invalid device id", { status: 400 });
-      return stubFor(env, id).fetch(request);
+      try { return await stubFor(env, id).fetch(request); }
+      catch (e) { return Response.json({ worker_error: String(e && e.message || e), name: e && e.name || null, stack: e && e.stack ? String(e.stack).slice(0, 800) : null }, { status: 500 }); }
     }
     if (path === "/status") {
       const id = getDeviceId(url);
       if (!id) return Response.json({ online: false, error: "invalid device id" }, { status: 400 });
-      return stubFor(env, id).fetch(request);
+      try { return await stubFor(env, id).fetch(request); }
+      catch (e) { return Response.json({ worker_error: String(e && e.message || e), name: e && e.name || null, stack: e && e.stack ? String(e.stack).slice(0, 800) : null }, { status: 500 }); }
     }
 
     // ===== Auth（GitHub OAuth）=====
