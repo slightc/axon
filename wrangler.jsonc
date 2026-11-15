@@ -15,16 +15,16 @@
   // 一台设备一个 Durable Object 实例，持有其 WebSocket 长连接
   "durable_objects": {
     "bindings": [
-      { "name": "DEVICE", "class_name": "DeviceSessionV2" },
+      { "name": "DEVICE", "class_name": "DeviceLink" },
       { "name": "USERHUB", "class_name": "UserHub" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["DeviceSession"] },
     { "tag": "v2", "new_sqlite_classes": ["UserHub"] },
-    // v3/v4：线上 DeviceSession 的 DO namespace 坏了（启动层 1101），删掉旧的、建一个全新的
-    { "tag": "v3", "deleted_classes": ["DeviceSession"] },
-    { "tag": "v4", "new_sqlite_classes": ["DeviceSessionV2"] }
+    // 线上 DeviceSession 的 DO namespace 坏了（启动层 1101），delete 它会让构建失败；
+    // 改为保留它作空壳、用全新的 DeviceLink namespace 承接设备连接（纯 new，和 v1/v2 一样稳过）
+    { "tag": "v3", "new_sqlite_classes": ["DeviceLink"] }
   ],
 
   // 用户体系 / client key / agent key / 设备注册表

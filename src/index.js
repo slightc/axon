@@ -11,7 +11,13 @@ import { signJWT, verifyJWT, setCookie, getCookie, requireUser, githubAuthUrl, g
 import { protectedResourceMetadata, authServerMetadata, handleRegister, handleAuthorizeGet, handleAuthorizePost, handleToken, oauthPreflight } from "./oauth.js";
 
 // ===== Legacy：一台设备一个 DeviceSession（旧随机 id + AGENT_TOKEN，保持兼容）=====
-export class DeviceSessionV2 {
+// 旧 DeviceSession 的 DO namespace 在线上损坏（fetch 之下的启动层 1101），且 delete 它会让
+// Workers Builds 失败。保留它作废弃空壳以满足 migration；真正的设备连接改用全新的 DeviceLink。
+export class DeviceSession {
+  async fetch() { return new Response("deprecated: this device namespace was rebuilt as DeviceLink", { status: 410 }); }
+}
+
+export class DeviceLink {
   constructor(state, env) {
     this.state = state;
     this.env = env;
