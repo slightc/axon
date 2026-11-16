@@ -21,9 +21,9 @@ export class DeviceLink {
   constructor(state, env) {
     this.state = state;
     this.env = env;
-    this.deviceSocket = null;
-    this.pending = new Map();
-    this.meta = { connectedAt: null, ua: null, info: null };
+    this.pending = new Map();  // reqId -> 请求上下文；仅在有 in-flight 请求时非空（期间 DO 必活跃），无需持久化
+    // ping/pong 由边缘自动应答，不唤醒 DO、不计 duration
+    try { this.state.setWebSocketAutoResponse(new WebSocketRequestResponsePair(JSON.stringify({ type: "ping" }), JSON.stringify({ type: "pong" }))); } catch {}
   }
 
   async fetch(request) {
@@ -32,7 +32,7 @@ export class DeviceLink {
       switch (url.pathname) {
         case "/connect": return this.handleConnect(request);
         case "/exec":    return this.handleExec(request);
-        case "/status":  return Response.json({ online: !!this.deviceSocket, meta: this.meta });
+        case "/status":  return this.handleStatus();
         default:         return new Response("not found", { status: 404 });
       }
     } catch (e) {
@@ -40,139 +40,28 @@ export class DeviceLink {
     }
   }
 
+  socket() { const a = this.state.getWebSockets(); return a.length ? a[0] : null; }
+
+  handleStatus() {
+    const ws = this.socket();
+    let meta = { connectedAt: null, ua: null, info: null };
+    if (ws) { try { meta = ws.deserializeAttachment() || meta; } catch {} }
+    return Response.json({ online: !!ws, meta });
+  }
+
   handleConnect(request) {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
-    server.accept();
-    if (this.deviceSocket) { try { this.deviceSocket.close(1000, "replaced"); } catch {} }
-    this.deviceSocket = server;
-    this.meta.connectedAt = Date.now();
-    this.meta.ua = request.headers.get("user-agent");
-
-    server.addEventListener("message", (evt) => {
-      let msg; try { msg = JSON.parse(evt.data); } catch { return; }
-      const p = this.pending.get(msg.reqId);
-      if (msg.type === "stream") {
-        if (p && p.stream && !p.closed) {
-          try { p.controller.enqueue(p.enc.encode(JSON.stringify({ t: msg.stream, d: msg.data }) + "\n")); } catch {}
-        }
-      } else if (msg.type === "result") {
-        if (!p) return;
-        if (p.stream) {
-          if (!p.closed) {
-            p.closed = true; clearTimeout(p.timer);
-            try { p.controller.enqueue(p.enc.encode(JSON.stringify({ t: "end", ok: msg.ok, exitCode: msg.exitCode ?? null, error: msg.error ?? null }) + "\n")); } catch {}
-            try { p.controller.close(); } catch {}
-          }
-          this.pending.delete(msg.reqId);
-        } else {
-          clearTimeout(p.timer); this.pending.delete(msg.reqId); p.resolve(msg);
-        }
-      } else if (msg.type === "hello") {
-        this.meta.info = msg.info || null;
-      } else if (msg.type === "ping") {
-        try { server.send(JSON.stringify({ type: "pong" })); } catch {}
-      }
-    });
-
-    const drop = () => { if (this.deviceSocket === server) this.deviceSocket = null; };
-    server.addEventListener("close", drop);
-    server.addEventListener("error", drop);
+    for (const old of this.state.getWebSockets()) { try { old.close(1000, "replaced"); } catch {} }
+    this.state.acceptWebSocket(server);   // Hibernation：空闲时休眠、不计 duration（连接由边缘保持）
+    try { server.serializeAttachment({ connectedAt: Date.now(), ua: request.headers.get("user-agent"), info: null }); } catch {}
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  async handleExec(request) {
-    if (!this.deviceSocket) return Response.json({ ok: false, error: "device offline" }, { status: 503 });
-    const url = new URL(request.url);
-    const streaming = url.searchParams.get("stream") === "1";
-    const code = await request.text();
-    if (!code.trim()) return Response.json({ ok: false, error: "empty code" }, { status: 400 });
-    const reqId = crypto.randomUUID();
-    if (streaming) return streamExec(this, this.deviceSocket, reqId, code, (id) => this.pending.delete(id), this.pending);
-    const result = await new Promise((resolve) => {
-      const timer = setTimeout(() => { this.pending.delete(reqId); resolve({ ok: false, error: "timeout (15s)" }); }, 15000);
-      this.pending.set(reqId, { resolve, timer });
-      try { this.deviceSocket.send(JSON.stringify({ type: "exec", reqId, code })); }
-      catch (e) { clearTimeout(timer); this.pending.delete(reqId); resolve({ ok: false, error: "send failed: " + e.message }); }
-    });
-    return Response.json(result);
-  }
-}
-
-// ===== 多用户：UserHub（每个用户一个 DO，持有其所有在线设备，给 agent 路由）=====
-export class UserHub {
-  constructor(state, env) {
-    this.state = state;
-    this.env = env;
-    this.userId = null;
-    this.devices = new Map();   // deviceId -> { ws, deviceId, name, type, meta, connectedAt, clientKey }
-    this.pending = new Map();   // reqId -> agent 请求（含流式）
-  }
-
-  async fetch(request) {
-    const url = new URL(request.url);
-    if (url.searchParams.get("uid")) this.userId = url.searchParams.get("uid");
-    switch (url.pathname) {
-      case "/hub/connect": return this.handleDeviceConnect(request, url);
-      case "/hub/devices": return this.handleListDevices();
-      case "/hub/exec":    return this.handleExec(request, url);
-      default:             return new Response("not found", { status: 404 });
-    }
-  }
-
-  // 同一用户下在线设备 name 去重：重名则加 -2 / -3…；不传 name 则按 type 生成
-  resolveName(wanted, type, selfId) {
-    const taken = new Set();
-    for (const [id, d] of this.devices) if (id !== selfId) taken.add(d.name);
-    let base = (wanted && wanted.trim()) ? wanted.trim() : `${type || "device"}-${selfId.slice(-4)}`;
-    if (!taken.has(base)) return base;
-    let i = 2;
-    while (taken.has(`${base}-${i}`)) i++;
-    return `${base}-${i}`;
-  }
-
-  // 按 device id 精确匹配，否则按 name
-  findDevice(target) {
-    if (this.devices.has(target)) return this.devices.get(target);
-    for (const d of this.devices.values()) if (d.name === target) return d;
-    return null;
-  }
-
-  handleDeviceConnect(request, url) {
-    if (request.headers.get("Upgrade") !== "websocket") return new Response("expected websocket", { status: 426 });
-    const pair = new WebSocketPair();
-    const [client, server] = Object.values(pair);
-    server.accept();
-
-    const deviceId = (url.searchParams.get("id") || "").match(/^[A-Za-z0-9_-]{8,128}$/)
-      ? url.searchParams.get("id") : ("dev_" + randomId(32));
-    const type = (url.searchParams.get("type") || "device").slice(0, 32);
-    const wantedName = (url.searchParams.get("name") || "").slice(0, 64);
-    const clientKey = url.searchParams.get("key") || null;
-
-    const old = this.devices.get(deviceId);
-    if (old) { try { old.ws.close(1000, "replaced"); } catch {} this.devices.delete(deviceId); }
-
-    const name = this.resolveName(wantedName, type, deviceId);
-    const rec = { ws: server, deviceId, name, type, meta: null, connectedAt: Date.now(), clientKey };
-    this.devices.set(deviceId, rec);
-
-    server.addEventListener("message", (evt) => this.routeMessage(evt, rec));
-    const drop = () => { if (this.devices.get(deviceId) === rec) this.devices.delete(deviceId); };
-    server.addEventListener("close", drop);
-    server.addEventListener("error", drop);
-
-    // 告知设备最终身份（name 可能被服务端改过）
-    try { server.send(JSON.stringify({ type: "welcome", deviceId, name })); } catch {}
-    this.upsertDevice(rec);
-
-    return new Response(null, { status: 101, webSocket: client });
-  }
-
-  routeMessage(evt, rec) {
-    let msg; try { msg = JSON.parse(evt.data); } catch { return; }
-    if (msg.type === "hello") { rec.meta = msg.info || null; this.upsertDevice(rec); return; }
-    if (msg.type === "ping") { try { rec.ws.send(JSON.stringify({ type: "pong" })); } catch {} return; }
+  async webSocketMessage(ws, data) {
+    let msg; try { msg = JSON.parse(typeof data === "string" ? data : new TextDecoder().decode(data)); } catch { return; }
+    if (msg.type === "hello") { try { const a = ws.deserializeAttachment() || {}; a.info = msg.info || null; ws.serializeAttachment(a); } catch {} return; }
+    if (msg.type === "ping") { try { ws.send(JSON.stringify({ type: "pong" })); } catch {} return; }
     const p = this.pending.get(msg.reqId);
     if (!p) return;
     if (msg.type === "stream") {
@@ -189,9 +78,132 @@ export class UserHub {
     }
   }
 
+  async webSocketClose(ws, code, reason) { try { ws.close(code, reason); } catch {} }
+  async webSocketError(ws) { try { ws.close(); } catch {} }
+
+  async handleExec(request) {
+    const ws = this.socket();
+    if (!ws) return Response.json({ ok: false, error: "device offline" }, { status: 503 });
+    const url = new URL(request.url);
+    const streaming = url.searchParams.get("stream") === "1";
+    const code = await request.text();
+    if (!code.trim()) return Response.json({ ok: false, error: "empty code" }, { status: 400 });
+    const reqId = crypto.randomUUID();
+    if (streaming) return streamExec(this, ws, reqId, code, (id) => this.pending.delete(id), this.pending);
+    const result = await new Promise((resolve) => {
+      const timer = setTimeout(() => { this.pending.delete(reqId); resolve({ ok: false, error: "timeout (15s)" }); }, 15000);
+      this.pending.set(reqId, { resolve, timer });
+      try { ws.send(JSON.stringify({ type: "exec", reqId, code })); }
+      catch (e) { clearTimeout(timer); this.pending.delete(reqId); resolve({ ok: false, error: "send failed: " + e.message }); }
+    });
+    return Response.json(result);
+  }
+}
+
+// ===== 多用户：UserHub（每个用户一个 DO，持有其所有在线设备，给 agent 路由）=====
+export class UserHub {
+  constructor(state, env) {
+    this.state = state;
+    this.env = env;
+    this.pending = new Map();   // reqId -> agent 请求（含流式）；仅在有 in-flight 请求时非空
+    try { this.state.setWebSocketAutoResponse(new WebSocketRequestResponsePair(JSON.stringify({ type: "ping" }), JSON.stringify({ type: "pong" }))); } catch {}
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+    switch (url.pathname) {
+      case "/hub/connect": return this.handleDeviceConnect(request, url);
+      case "/hub/devices": return this.handleListDevices();
+      case "/hub/exec":    return this.handleExec(request, url);
+      default:             return new Response("not found", { status: 404 });
+    }
+  }
+
+  // 当前所有在线设备：记录存在每个 WebSocket 的 attachment 上（Hibernation 下内存会清空）
+  deviceRecords() {
+    const out = [];
+    for (const ws of this.state.getWebSockets()) {
+      let a; try { a = ws.deserializeAttachment(); } catch {}
+      if (a && a.deviceId) out.push({ ws, ...a });
+    }
+    return out;
+  }
+
+  // 同一用户下在线设备 name 去重：重名则加 -2 / -3…；不传 name 则按 type 生成
+  resolveName(wanted, type, selfId) {
+    const taken = new Set();
+    for (const d of this.deviceRecords()) if (d.deviceId !== selfId) taken.add(d.name);
+    let base = (wanted && wanted.trim()) ? wanted.trim() : `${type || "device"}-${selfId.slice(-4)}`;
+    if (!taken.has(base)) return base;
+    let i = 2;
+    while (taken.has(`${base}-${i}`)) i++;
+    return `${base}-${i}`;
+  }
+
+  // 按 device id 精确匹配，否则按 name
+  findDevice(target) {
+    const recs = this.deviceRecords();
+    for (const d of recs) if (d.deviceId === target) return d;
+    for (const d of recs) if (d.name === target) return d;
+    return null;
+  }
+
+  async handleDeviceConnect(request, url) {
+    if (request.headers.get("Upgrade") !== "websocket") return new Response("expected websocket", { status: 426 });
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+
+    const deviceId = (url.searchParams.get("id") || "").match(/^[A-Za-z0-9_-]{8,128}$/)
+      ? url.searchParams.get("id") : ("dev_" + randomId(32));
+    const type = (url.searchParams.get("type") || "device").slice(0, 32);
+    const wantedName = (url.searchParams.get("name") || "").slice(0, 64);
+    const clientKey = url.searchParams.get("key") || null;
+    const userId = url.searchParams.get("uid") || null;
+
+    for (const d of this.deviceRecords()) if (d.deviceId === deviceId) { try { d.ws.close(1000, "replaced"); } catch {} }
+
+    const name = this.resolveName(wantedName, type, deviceId);
+    this.state.acceptWebSocket(server);   // Hibernation：空闲时休眠、不计 duration
+    const rec = { deviceId, name, type, meta: null, connectedAt: Date.now(), clientKey, userId };
+    try { server.serializeAttachment(rec); } catch {}
+
+    // 告知设备最终身份（name 可能被服务端改过）
+    try { server.send(JSON.stringify({ type: "welcome", deviceId, name })); } catch {}
+    await this.upsertDevice(rec);
+
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  async webSocketMessage(ws, data) {
+    let msg; try { msg = JSON.parse(typeof data === "string" ? data : new TextDecoder().decode(data)); } catch { return; }
+    if (msg.type === "hello") {
+      let rec; try { rec = ws.deserializeAttachment(); } catch {}
+      if (rec) { rec.meta = msg.info || null; try { ws.serializeAttachment(rec); } catch {} await this.upsertDevice(rec); }
+      return;
+    }
+    if (msg.type === "ping") { try { ws.send(JSON.stringify({ type: "pong" })); } catch {} return; }
+    const p = this.pending.get(msg.reqId);
+    if (!p) return;
+    if (msg.type === "stream") {
+      if (p.stream && !p.closed) { try { p.controller.enqueue(p.enc.encode(JSON.stringify({ t: msg.stream, d: msg.data }) + "\n")); } catch {} }
+    } else if (msg.type === "result") {
+      if (p.stream) {
+        if (!p.closed) {
+          p.closed = true; clearTimeout(p.timer);
+          try { p.controller.enqueue(p.enc.encode(JSON.stringify({ t: "end", ok: msg.ok, exitCode: msg.exitCode ?? null, error: msg.error ?? null }) + "\n")); } catch {}
+          try { p.controller.close(); } catch {}
+        }
+        this.pending.delete(msg.reqId);
+      } else { clearTimeout(p.timer); this.pending.delete(msg.reqId); p.resolve(msg); }
+    }
+  }
+
+  async webSocketClose(ws, code, reason) { try { ws.close(code, reason); } catch {} }
+  async webSocketError(ws) { try { ws.close(); } catch {} }
+
   handleListDevices() {
     const now = Date.now();
-    const list = [...this.devices.values()].map((d) => ({
+    const list = this.deviceRecords().map((d) => ({
       deviceId: d.deviceId, name: d.name, type: d.type, meta: d.meta,
       connectedAt: d.connectedAt, onlineMs: now - d.connectedAt,
     }));
@@ -201,7 +213,7 @@ export class UserHub {
   async handleExec(request, url) {
     const target = url.searchParams.get("device") || "";
     const dev = this.findDevice(target);
-    if (!dev) return Response.json({ ok: false, error: `device not found: ${target || "(empty)"}`, online: [...this.devices.values()].map((d) => d.name) }, { status: 404 });
+    if (!dev) return Response.json({ ok: false, error: `device not found: ${target || "(empty)"}`, online: this.deviceRecords().map((d) => d.name) }, { status: 404 });
     const streaming = url.searchParams.get("stream") === "1";
     const code = await request.text();
     if (!code.trim()) return Response.json({ ok: false, error: "empty code" }, { status: 400 });
@@ -217,14 +229,14 @@ export class UserHub {
   }
 
   async upsertDevice(rec) {
-    if (!this.userId || !this.env.DB) return;
+    if (!rec.userId || !this.env.DB) return;
     const now = Date.now();
     try {
       await this.env.DB.prepare(
         `INSERT INTO devices (id, user_id, name, type, client_key, meta, first_seen, last_seen)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET name=excluded.name, type=excluded.type, meta=excluded.meta, last_seen=excluded.last_seen`
-      ).bind(rec.deviceId, this.userId, rec.name, rec.type, rec.clientKey, rec.meta ? JSON.stringify(rec.meta) : null, now, now).run();
+      ).bind(rec.deviceId, rec.userId, rec.name, rec.type, rec.clientKey, rec.meta ? JSON.stringify(rec.meta) : null, now, now).run();
     } catch {}
   }
 }
